@@ -33,7 +33,8 @@ const state = {
   panY: 0,
   panning: false,
   lastMouseX: 0,
-  lastMouseY: 0
+  lastMouseY: 0,
+  scale: 1
 };
 
 // ===== Component registry =====
@@ -52,15 +53,36 @@ const COMPONENT_TYPES = {
       G[n2Idx][n1Idx] -= g;
     },
     draw(ctx2d, comp) {
+      // Midpoint between nodes
       const mx = (comp.n1.x + comp.n2.x) / 2;
       const my = (comp.n1.y + comp.n2.y) / 2;
+
+      // Vector from n1 to n2
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+
+      // Angle of the resistor line
+      const angle = Math.atan2(dy, dx);
+
+      const rectLength = 24;  // along the line
+      const rectHeight = 12;  // thickness
+
+      // Rotate only the rectangle
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
       ctx2d.fillStyle = '#f39c12';
-      ctx2d.fillRect(mx - 12, my - 6, 24, 12);
+      ctx2d.fillRect(-rectLength / 2, -rectHeight / 2, rectLength, rectHeight);
+
+      ctx2d.restore();
+
+      // Draw text in normal (unrotated) coordinates above the midpoint
       ctx2d.fillStyle = '#eee';
       ctx2d.font = '12px monospace';
       ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'bottom';
       ctx2d.fillText(`${comp.value}Ω`, mx, my - 12);
-      ctx2d.textAlign = 'start';
     }
   },
   V: {
@@ -79,20 +101,70 @@ const COMPONENT_TYPES = {
       G[n2Idx][row] -= 1;
       G[row][n1Idx] += 1;
       G[row][n2Idx] -= 1;
-      I[row] += comp.value;
+
+      const polarity = comp.polarity || 1; // default +1 if not set
+      I[row] += comp.value * polarity;
     },
     draw(ctx2d, comp) {
+      // Midpoint between nodes
       const mx = (comp.n1.x + comp.n2.x) / 2;
       const my = (comp.n1.y + comp.n2.y) / 2;
+
+      // Main circle
+      const radius = 10;
       ctx2d.fillStyle = '#3498db';
       ctx2d.beginPath();
-      ctx2d.arc(mx, my, 10, 0, Math.PI * 2);
+      ctx2d.arc(mx, my, radius, 0, Math.PI * 2);
       ctx2d.fill();
+
+      // Voltage label (inside or near the circle; optional)
       ctx2d.fillStyle = '#fff';
       ctx2d.font = 'bold 12px monospace';
       ctx2d.textAlign = 'center';
-      ctx2d.fillText(`${comp.value}V`, mx, my + 4);
-      ctx2d.textAlign = 'start';
+      ctx2d.textBaseline = 'middle';
+      ctx2d.fillText(`${comp.value}V`, mx, my);
+
+      // Direction vector from n1 to n2
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+
+      // Normal vector (perpendicular to line); pick one side
+      const nx = -uy;
+      const ny = ux;
+
+      // distance from center for symbols
+      const radialOffset = radius - 4;   // away from circle
+      const alongOffset = 16;           // along line to separate + and -
+
+      const polarity = comp.polarity || 1; // 1: n1 +, n2 -, -1: n1 -, n2 +
+
+      // Base positions on one side of the line (using the normal)
+      const baseX = mx + nx * radialOffset;
+      const baseY = my + ny * radialOffset;
+
+      // Offset along the line in opposite directions so + and - don't overlap
+      const plusXPos = baseX - ux * alongOffset;
+      const plusYPos = baseY - uy * alongOffset;
+      const minusXPos = baseX + ux * alongOffset;
+      const minusYPos = baseY + uy * alongOffset;
+
+      ctx2d.fillStyle = '#fff';
+      ctx2d.font = '10px monospace';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'middle';
+
+      if (polarity === 1) {
+        // n1 is +, n2 is -
+        ctx2d.fillText('+', plusXPos, plusYPos);
+        ctx2d.fillText('-', minusXPos, minusYPos);
+      } else {
+        // n1 is -, n2 is +
+        ctx2d.fillText('-', plusXPos, plusYPos);
+        ctx2d.fillText('+', minusXPos, minusYPos);
+      }
     }
   },
   W: {
@@ -208,7 +280,21 @@ function addNode(x, y) {
   return n;
 }
 function addComponent(type, n1, n2, value) {
-  state.components.push({ type, n1, n2, value, id: state.nextId++, current: 0, hasError: false });
+  const comp = {
+    type,
+    n1,
+    n2,
+    value,
+    id: state.nextId++,
+    current: 0,
+    hasError: false
+  };
+
+  if (type === 'V') {
+    comp.polarity = 1; // + at n1, - at n2 by default
+  }
+
+  state.components.push(comp);
 }
 
 // Delete helpers
@@ -552,33 +638,60 @@ function updatePropertiesBox() {
     const v2 = c.n2.vx?.toFixed(2) ?? '-';
     const diff = (c.n1.vx - c.n2.vx)?.toFixed(2) ?? '-';
 
+    const isVoltage = c.type === 'V';
+    const polarity = c.polarity || 1;
+    const polarityText = polarity === 1 ? 'N1 is +,<br>N2 is -' : 'N1 is -,<br>N2 is +';
+
     content.innerHTML = `
+    <div class="properties-field">
+      <label>Type</label>
+      <div style="font-weight:bold;">${label} (ID: ${c.id})</div>
+    </div>
+    <div class="properties-field">
+      <label>${valueLabel}</label>
+      <input type="number" id="propValue" value="${c.value}" step="any" min="0.0001" />
+    </div>
+    ${isVoltage ? `
       <div class="properties-field">
-        <label>Type</label>
-        <div style="font-weight:bold;">${label} (ID: ${c.id})</div>
-      </div>
-      <div class="properties-field">
-        <label>${valueLabel}</label>
-        <input type="number" id="propValue" value="${c.value}" step="any" min="0.0001" />
-      </div>
-      <div class="properties-field">
-        <label>Node Voltages</label>
-        <div style="font-family:monospace;" id="propVoltText">
-          V1: ${v1}V | V2: ${v2}V (ΔV: ${diff}V)
+        <label>Polarity</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span style="font-family:monospace;" id="propPolarityText">${polarityText}</span>
+          <button type="button" class="tool-btn" id="propPolarityToggle">Reverse polarity</button>
         </div>
       </div>
-      <div class="properties-field">
-        <label>Measured Current</label>
-        <div style="font-weight:bold;font-family:monospace;" id="propCurrText">
-          ${formatCurrent(c.current || 0)}
-        </div>
+    ` : ''}
+    <div class="properties-field">
+      <label>Node Voltages</label>
+      <div style="font-family:monospace;" id="propVoltText">
+        V1: ${v1}V | V2: ${v2}V<br>
+        (ΔV: ${diff}V)
       </div>
-      <button class="delete-btn" id="propDelete">Delete Component</button>
-    `;
+    </div>
+    <div class="properties-field">
+      <label>Measured Current</label>
+      <div style="font-weight:bold;font-family:monospace;" id="propCurrText">
+        ${formatCurrent(c.current || 0)}
+      </div>
+    </div>
+    <button class="delete-btn" id="propDelete">Delete Component</button>
+  `;
     document.getElementById('propValue').addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);
       if (!isNaN(v) && v > 0) c.value = v;
     });
+
+    if (isVoltage) {
+      const toggleBtn = document.getElementById('propPolarityToggle');
+      const polTextEl = document.getElementById('propPolarityText');
+      if (toggleBtn && polTextEl) {
+        toggleBtn.addEventListener('click', () => {
+          c.polarity = (c.polarity || 1) * -1;
+          const pTxt = c.polarity === 1 ? 'N1 is +, N2 is -' : 'N1 is -, N2 is +';
+          polTextEl.textContent = pTxt;
+        });
+      }
+    }
+
     document.getElementById('propDelete').addEventListener('click', () => {
       deleteComponent(c);
       clearSelection();
@@ -634,16 +747,25 @@ function gaussSolve(A, b) {
 
 // ===== Rendering =====
 function voltageColor(v) {
-  const clamped = Math.max(0, Math.min(5, v));
-  const r = Math.floor((clamped / 5) * 255);
-  const b = 255 - r;
-  return `rgb(${r},50,${b})`;
+  const eps = 1e-3; // treat tiny values as 0
+
+  if (Math.abs(v) < eps) {
+    // neutral / ~0 V → light gray
+    return 'rgb(200, 200, 200)';
+  }
+  if (v < 0) {
+    // negative → blue
+    return 'rgb(0, 0, 255)';
+  }
+  // positive → red
+  return 'rgb(255, 0, 0)';
 }
 
 function draw() {
   ctx.clearRect(0, 0, width, height);
   ctx.save();
   ctx.translate(state.panX, state.panY);
+  ctx.scale(state.scale, state.scale);
 
   // Hover / group highlight
   let hoveredComp = null;
@@ -672,14 +794,23 @@ function draw() {
   }
 
   // Grid
+  // Grid
   ctx.strokeStyle = '#222';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1 / state.scale; // keep grid lines thin when zoomed
+
   ctx.beginPath();
 
-  const startX = Math.floor((-state.panX) / GRID_SIZE) * GRID_SIZE;
-  const endX = Math.ceil((width - state.panX) / GRID_SIZE) * GRID_SIZE;
-  const startY = Math.floor((-state.panY) / GRID_SIZE) * GRID_SIZE;
-  const endY = Math.ceil((height - state.panY) / GRID_SIZE) * GRID_SIZE;
+  // visible world bounds
+  const worldLeft = -state.panX / state.scale;
+  const worldTop = -state.panY / state.scale;
+  const worldRight = (width - state.panX) / state.scale;
+  const worldBottom = (height - state.panY) / state.scale;
+
+  // align grid lines to GRID_SIZE
+  const startX = Math.floor(worldLeft / GRID_SIZE) * GRID_SIZE;
+  const endX = Math.ceil(worldRight / GRID_SIZE) * GRID_SIZE;
+  const startY = Math.floor(worldTop / GRID_SIZE) * GRID_SIZE;
+  const endY = Math.ceil(worldBottom / GRID_SIZE) * GRID_SIZE;
 
   for (let x = startX; x <= endX; x += GRID_SIZE) {
     ctx.moveTo(x, startY);
@@ -755,6 +886,7 @@ function draw() {
   // Selection halo
   if (state.selectedObject) {
     ctx.save();
+    ctx.lineCap = "round";
     ctx.strokeStyle = '#00e5ff';
     ctx.shadowColor = '#00e5ff';
     ctx.shadowBlur = 10;
@@ -981,6 +1113,39 @@ canvas.addEventListener('mousemove', (e) => {
   }
 });
 
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+
+  // world position before zoom (to zoom around cursor)
+  const worldBefore = screenToWorld(sx, sy);
+
+  const zoomFactor = 1.1;  // ~10% per notch
+  if (e.deltaY < 0) {
+    // zoom in
+    state.scale *= zoomFactor;
+  } else {
+    // zoom out
+    state.scale /= zoomFactor;
+  }
+
+  // clamp scale
+  state.scale = Math.max(0.2, Math.min(5, state.scale));
+
+  // adjust pan so the point under cursor stays under cursor
+  const worldAfter = worldBefore;
+  const screenAfter = {
+    x: worldAfter.x * state.scale + state.panX,
+    y: worldAfter.y * state.scale + state.panY
+  };
+
+  state.panX += sx - screenAfter.x;
+  state.panY += sy - screenAfter.y;
+});
+
 canvas.addEventListener('mouseup', () => {
   state.draggingNode = null;
 });
@@ -1010,17 +1175,17 @@ function resetToolButtons() {
   });
 }
 
-function screenToWorld(x, y) {
+function screenToWorld(sx, sy) {
   return {
-    x: x - state.panX,
-    y: y - state.panY
+    x: (sx - state.panX) / state.scale,
+    y: (sy - state.panY) / state.scale
   };
 }
 
-function worldToScreen(x, y) {
+function worldToScreen(wx, wy) {
   return {
-    x: x + state.panX,
-    y: y + state.panY
+    x: wx * state.scale + state.panX,
+    y: wy * state.scale + state.panY
   };
 }
 
