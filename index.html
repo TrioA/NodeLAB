@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CircuitSim — Interactive Circuit Simulator</title>
+    <meta name="description"
+        content="Browser-based interactive circuit simulator with real-time Modified Nodal Analysis" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <header class="toolbar" id="toolbar">
+        <div class="toolbar-brand">CircuitSim</div>
+        <div class="toolbar-divider"></div>
+
+        <nav class="toolbar-group" aria-label="Tools">
+            <div class="tool-wrapper">
+                <button id="selectBtn" class="tool-btn active" title="Select & Move">Select</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addNodeBtn" class="tool-btn" title="Create Node">Node</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addResistor" class="tool-btn" title="Place Resistor">Resistor</button>
+                <div class="tool-dropdown">
+                    <label for="resistorValue">Resistance (Ω)</label>
+                    <input id="resistorValue" type="number" value="1000" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addVoltage" class="tool-btn" title="Place Voltage Source">Voltage</button>
+                <div class="tool-dropdown">
+                    <label for="voltageValue">Voltage (V)</label>
+                    <input id="voltageValue" type="number" value="5" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addWire" class="tool-btn" title="Place Wire">Wire</button>
+            </div>
+        </nav>
+
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+            <button id="deleteModeBtn" class="tool-btn tool-btn-danger" title="Delete Mode">Delete</button>
+            <button id="clearBtn" class="tool-btn" title="Clear All">Clear</button>
+        </div>
+        <div class="toolbar-spacer"></div>
+        <div class="toolbar-hint">Click two nodes to place · RMB drag to pan</div>
+    </header>
+
+    <main class="canvas-container" id="canvasContainer">
+        <canvas id="canvas"></canvas>
+        <div class="info-bar" id="info">Nodes: 0 | Components: 0</div>
+        <div class="mouse-coords" id="mouseCoords">X: 0 · Y: 0</div>
+
+        <aside class="properties-box" id="propertiesBox" style="display: none;">
+            <h3 class="properties-title">Properties</h3>
+            <div id="propertiesContent"></div>
+        </aside>
+
+        <div class="tooltip-box" id="tooltipBox" style="display: none;"></div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
