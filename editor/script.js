@@ -37,6 +37,8 @@ const state = {
   scale: 1
 };
 
+let currentAnimTime = 0;
+
 // ===== Component registry =====
 const COMPONENT_TYPES = {
   R: {
@@ -216,8 +218,88 @@ function showSolveError(message = 'Circuit solving failed') {
 
 // ===== Keyboard =====
 window.addEventListener('keydown', (e) => {
+  // existing Ctrl handling
   if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
     state.ctrlPressed = true;
+  }
+
+  // ignore if typing in an input
+  const activeTag = document.activeElement && document.activeElement.tagName;
+  if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+  switch (e.code) {
+    case 'Digit1': // 1 = Select
+      setMode('SELECT');
+      break;
+    case 'Digit2': // 2 = Node
+      setMode('CREATE_NODE');
+      break;
+    case 'Digit3': // 3 = Resistor
+      setMode('CREATE_WIRE');
+      break;
+    case 'Digit4': // 4 = Voltage
+      setMode('CREATE_VOLTAGE');
+      break;
+    case 'Digit5': // 5 = Wire (if you want)
+      setMode('CREATE_RESISTOR');
+      break;
+    case 'Delete': {
+      const obj = state.selectedObject;
+      if (obj) {
+        // if a node is selected
+        if (state.nodes.includes(obj)) {
+          deleteNode(obj);
+          clearSelection();
+        } else {
+          // assume it's a component
+          deleteComponent(obj);
+          clearSelection();
+        }
+      } else {
+        // no selection → toggle delete mode
+        if (state.mode === 'DELETE') setMode('SELECT');
+        else setMode('DELETE');
+      }
+      break;
+    }
+    /* case 'Delete':
+      // optional: toggle delete mode with Delete key
+      if (state.mode === 'DELETE') setMode('SELECT');
+      else setMode('DELETE');
+      break; */
+  }
+
+  // Node Moving
+  const activeTag2 = document.activeElement && document.activeElement.tagName;
+  if (activeTag2 === 'INPUT' || activeTag2 === 'TEXTAREA') return;
+
+  const obj = state.selectedObject;
+  const isNode = obj && state.nodes.includes(obj);
+  const step = GRID_SIZE; // or 10, or whatever you like
+
+  switch (e.code) {
+    // existing Digit1–5 + Delete cases...
+
+    case 'ArrowLeft':
+      if (isNode) {
+        obj.x = snapToGrid(obj.x - step);
+      }
+      break;
+    case 'ArrowRight':
+      if (isNode) {
+        obj.x = snapToGrid(obj.x + step);
+      }
+      break;
+    case 'ArrowUp':
+      if (isNode) {
+        obj.y = snapToGrid(obj.y - step);
+      }
+      break;
+    case 'ArrowDown':
+      if (isNode) {
+        obj.y = snapToGrid(obj.y + step);
+      }
+      break;
   }
 });
 window.addEventListener('keyup', (e) => {
@@ -295,6 +377,65 @@ function addComponent(type, n1, n2, value) {
   }
 
   state.components.push(comp);
+}
+
+function drawCurrentFlow(ctx2d, comp) {
+  const n1 = comp.n1;
+  const n2 = comp.n2;
+
+  const I = comp.current || 0;
+  const absI = Math.abs(I);
+
+  // Don't draw if no current flowing
+  if (absI < 1e-9) return;
+
+  const speed = Math.min(120, 15 + absI * 200); // px/s, scales with current magnitude
+  const direction = I >= 0 ? 1 : -1;
+
+  // Dash style varies by component type
+  let dashLength, gapLength, lineWidth, color, alpha;
+  if (comp.type === 'W') {
+    dashLength = 8;
+    gapLength = 5;
+    lineWidth = 2.5;
+    color = '0, 229, 255';
+    alpha = 0.9;
+  } else if (comp.type === 'R') {
+    dashLength = 6;
+    gapLength = 6;
+    lineWidth = 2;
+    color = '243, 156, 18';
+    alpha = 0.75;
+  } else if (comp.type === 'V') {
+    dashLength = 10;
+    gapLength = 4;
+    lineWidth = 2;
+    color = '52, 152, 219';
+    alpha = 0.75;
+  } else {
+    dashLength = 7;
+    gapLength = 5;
+    lineWidth = 2;
+    color = '0, 229, 255';
+    alpha = 0.7;
+  }
+
+  const t = currentAnimTime * 0.001;
+  const offset = (t * speed * direction) % (dashLength + gapLength);
+
+  ctx2d.save();
+  ctx2d.strokeStyle = `rgba(${color}, ${alpha})`;
+  ctx2d.lineWidth = lineWidth / state.scale;
+  ctx2d.setLineDash([dashLength, gapLength]);
+  ctx2d.lineDashOffset = -offset;
+  ctx2d.lineCap = 'round';
+
+  ctx2d.beginPath();
+  ctx2d.moveTo(n1.x, n1.y);
+  ctx2d.lineTo(n2.x, n2.y);
+  ctx2d.stroke();
+
+  ctx2d.restore();
 }
 
 // Delete helpers
@@ -761,7 +902,14 @@ function voltageColor(v) {
   return 'rgb(255, 0, 0)';
 }
 
+let prevTime = Date.now();
+
 function draw() {
+  const now = Date.now();
+  const deltaTime = now - prevTime;
+  currentAnimTime += deltaTime;
+  prevTime = now;
+
   ctx.clearRect(0, 0, width, height);
   ctx.save();
   ctx.translate(state.panX, state.panY);
@@ -824,8 +972,9 @@ function draw() {
 
   // Group highlight
   if (hoveredGroup) {
+    const hoverPulse = 0.22 + 0.05 * Math.sin(currentAnimTime * 0.003);
     ctx.save();
-    ctx.strokeStyle = 'rgba(52,152,219,0.25)';
+    ctx.strokeStyle = `rgba(52,152,219,${hoverPulse})`;
     ctx.lineWidth = 14;
     ctx.lineCap = 'round';
     ctx.beginPath();
@@ -834,7 +983,7 @@ function draw() {
       ctx.lineTo(c.n2.x, c.n2.y);
     }
     ctx.stroke();
-    ctx.fillStyle = 'rgba(52,152,219,0.2)';
+    ctx.fillStyle = `rgba(52,152,219,${hoverPulse * 0.65})`;
     for (const n of hoveredGroup.nodes) {
       ctx.beginPath();
       ctx.arc(n.x, n.y, 15, 0, Math.PI * 2);
@@ -851,6 +1000,13 @@ function draw() {
     ctx.moveTo(c.n1.x, c.n1.y);
     ctx.lineTo(c.n2.x, c.n2.y);
     ctx.stroke();
+  }
+
+  // Current flow animation — drawn on top of base lines when Ctrl is held
+  if (state.ctrlPressed) {
+    for (const c of state.components) {
+      drawCurrentFlow(ctx, c);
+    }
   }
 
   // Nodes
@@ -883,38 +1039,217 @@ function draw() {
     }
   }
 
-  // Selection halo
+  // Selection halo (pulsing, shape-aware)
   if (state.selectedObject) {
+    const selPulse = 0.78 + 0.18 * Math.sin(currentAnimTime * 0.003);
+    const selBlur = 8 + 6 * (Math.sin(currentAnimTime * 0.003) * 0.5 + 0.5);
     ctx.save();
-    ctx.lineCap = "round";
-    ctx.strokeStyle = '#00e5ff';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse})`;
     ctx.shadowColor = '#00e5ff';
-    ctx.shadowBlur = 10;
-    ctx.lineWidth = 2.5;
+    ctx.shadowBlur = selBlur;
+    ctx.lineWidth = 1.5;
     const obj = state.selectedObject;
     const isNode = state.nodes.includes(obj);
     if (isNode) {
+      // Circle outline around node
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(obj.x, obj.y, 10, 0, Math.PI * 2);
+      ctx.arc(obj.x, obj.y, 11, 0, Math.PI * 2);
       ctx.stroke();
-    } else {
-      if (obj.type === 'W') {
-        ctx.beginPath();
-        ctx.moveTo(obj.n1.x, obj.n1.y);
-        ctx.lineTo(obj.n2.x, obj.n2.y);
-        ctx.stroke();
-      } else {
-        const mx = (obj.n1.x + obj.n2.x) / 2;
-        const my = (obj.n1.y + obj.n2.y) / 2;
-        ctx.beginPath();
-        ctx.arc(mx, my, 18, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+    } else if (obj.type === 'W') {
+      // Outlined wire line
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse * 0.35})`;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(obj.n1.x, obj.n1.y);
+      ctx.lineTo(obj.n2.x, obj.n2.y);
+      ctx.stroke();
+      // Inner bright line
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse})`;
+      ctx.shadowBlur = selBlur;
+      ctx.beginPath();
+      ctx.moveTo(obj.n1.x, obj.n1.y);
+      ctx.lineTo(obj.n2.x, obj.n2.y);
+      ctx.stroke();
+    } else if (obj.type === 'R') {
+      // Outlined rect matching resistor shape
+      const mx = (obj.n1.x + obj.n2.x) / 2;
+      const my = (obj.n1.y + obj.n2.y) / 2;
+      const dx = obj.n2.x - obj.n1.x;
+      const dy = obj.n2.y - obj.n1.y;
+      const angle = Math.atan2(dy, dx);
+      const rectLength = 24 + 6;
+      const rectHeight = 12 + 6;
+      // Outer soft glow rect
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(angle);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse * 0.45})`;
+      ctx.shadowBlur = 0;
+      ctx.strokeRect(-rectLength / 2, -rectHeight / 2, rectLength, rectHeight);
+      // Inner crisp rect
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse})`;
+      ctx.shadowColor = '#00e5ff';
+      ctx.shadowBlur = selBlur;
+      ctx.strokeRect(-rectLength / 2, -rectHeight / 2, rectLength, rectHeight);
+      ctx.restore();
+      // Line segments from nodes to rect
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse * 0.8})`;
+      ctx.shadowBlur = 0;
+      const ux = Math.cos(angle), uy = Math.sin(angle);
+      ctx.beginPath();
+      ctx.moveTo(obj.n1.x, obj.n1.y);
+      ctx.lineTo(mx - ux * rectLength / 2, my - uy * rectLength / 2);
+      ctx.moveTo(obj.n2.x, obj.n2.y);
+      ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
+      ctx.stroke();
+    } else if (obj.type === 'V') {
+      // Circle outline around voltage source center
+      const mx = (obj.n1.x + obj.n2.x) / 2;
+      const my = (obj.n1.y + obj.n2.y) / 2;
+      // Outer glow ring
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse * 0.4})`;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(mx, my, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      // Inner crisp ring
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse})`;
+      ctx.shadowColor = '#00e5ff';
+      ctx.shadowBlur = selBlur;
+      ctx.beginPath();
+      ctx.arc(mx, my, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      // Line segments from nodes to circle edge
+      const dx = obj.n2.x - obj.n1.x;
+      const dy = obj.n2.y - obj.n1.y;
+      const angle = Math.atan2(dy, dx);
+      const ux = Math.cos(angle), uy = Math.sin(angle);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse * 0.8})`;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(obj.n1.x, obj.n1.y);
+      ctx.lineTo(mx - ux * 16, my - uy * 16);
+      ctx.moveTo(obj.n2.x, obj.n2.y);
+      ctx.lineTo(mx + ux * 16, my + uy * 16);
+      ctx.stroke();
     }
     ctx.restore();
   }
 
   updateSelectedPropertiesDynamics();
+
+  // Ctrl hover halo — shape-aware outline on hovered component/node
+  if (state.ctrlPressed) {
+    const hPulse = 0.55 + 0.2 * Math.sin(currentAnimTime * 0.003);
+    const hBlur = 3 + 3 * (Math.sin(currentAnimTime * 0.003) * 0.5 + 0.5);
+    if (hoveredNode) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse})`;
+      ctx.shadowColor = 'rgba(52,152,219,0.6)';
+      ctx.shadowBlur = hBlur;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(hoveredNode.x, hoveredNode.y, 11, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    } else if (hoveredComp) {
+      const c = hoveredComp;
+      ctx.save();
+      ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse})`;
+      ctx.shadowColor = 'rgba(52,152,219,0.6)';
+      ctx.shadowBlur = hBlur;
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (c.type === 'W') {
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse * 0.3})`;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.moveTo(c.n1.x, c.n1.y);
+        ctx.lineTo(c.n2.x, c.n2.y);
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse})`;
+        ctx.shadowBlur = hBlur;
+        ctx.beginPath();
+        ctx.moveTo(c.n1.x, c.n1.y);
+        ctx.lineTo(c.n2.x, c.n2.y);
+        ctx.stroke();
+      } else if (c.type === 'R') {
+        const mx = (c.n1.x + c.n2.x) / 2;
+        const my = (c.n1.y + c.n2.y) / 2;
+        const dx = c.n2.x - c.n1.x;
+        const dy = c.n2.y - c.n1.y;
+        const angle = Math.atan2(dy, dx);
+        const rl = 30, rh = 18;
+        ctx.save();
+        ctx.translate(mx, my);
+        ctx.rotate(angle);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse * 0.2})`;
+        ctx.shadowBlur = 0;
+        ctx.strokeRect(-rl / 2, -rh / 2, rl, rh);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse})`;
+        ctx.shadowColor = 'rgba(52,152,219,0.6)';
+        ctx.shadowBlur = hBlur;
+        ctx.strokeRect(-rl / 2, -rh / 2, rl, rh);
+        ctx.restore();
+        const ux = Math.cos(angle), uy = Math.sin(angle);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse * 0.5})`;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.moveTo(c.n1.x, c.n1.y);
+        ctx.lineTo(mx - ux * rl / 2, my - uy * rl / 2);
+        ctx.moveTo(c.n2.x, c.n2.y);
+        ctx.lineTo(mx + ux * rl / 2, my + uy * rl / 2);
+        ctx.stroke();
+      } else if (c.type === 'V') {
+        const mx = (c.n1.x + c.n2.x) / 2;
+        const my = (c.n1.y + c.n2.y) / 2;
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse * 0.2})`;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(mx, my, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse})`;
+        ctx.shadowColor = 'rgba(52,152,219,0.6)';
+        ctx.shadowBlur = hBlur;
+        ctx.beginPath();
+        ctx.arc(mx, my, 16, 0, Math.PI * 2);
+        ctx.stroke();
+        const dx = c.n2.x - c.n1.x;
+        const dy = c.n2.y - c.n1.y;
+        const angle = Math.atan2(dy, dx);
+        const ux = Math.cos(angle), uy = Math.sin(angle);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = `rgba(52, 152, 219, ${hPulse * 0.5})`;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.moveTo(c.n1.x, c.n1.y);
+        ctx.lineTo(mx - ux * 16, my - uy * 16);
+        ctx.moveTo(c.n2.x, c.n2.y);
+        ctx.lineTo(mx + ux * 16, my + uy * 16);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
 
   // Placement preview
   if (state.activeTool && state.placing && state.placing.n1 && !state.deleteMode) {
@@ -1199,6 +1534,17 @@ function setMode(mode) {
   hideAllToolInputs();
   resetToolButtons();
 
+  const deleteBtn = document.getElementById('deleteModeBtn');
+  if (deleteBtn) {
+    if (mode === 'DELETE') {
+      deleteBtn.style.background = '#c0392b';
+      deleteBtn.classList.add('active');
+    } else {
+      deleteBtn.style.background = '';
+      deleteBtn.classList.remove('active');
+    }
+  }
+
   if (mode === 'SELECT') {
     if (selectBtn) selectBtn.classList.add('active');
     return;
@@ -1223,9 +1569,6 @@ function setMode(mode) {
     const btn = document.getElementById(btnId);
     if (btn) btn.classList.add('active');
   }
-
-  const deleteBtn = document.getElementById('deleteModeBtn');
-  if (deleteBtn && mode !== 'DELETE') deleteBtn.style.background = '';
 
   if (state.activeTool) {
     const def = COMPONENT_TYPES[state.activeTool];
@@ -1281,7 +1624,6 @@ if (deleteBtn) {
       setMode('SELECT');
     } else {
       setMode('DELETE');
-      deleteBtn.style.background = '#c0392b';
     }
   });
 }
@@ -1294,12 +1636,11 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   state.placing = null;
   state.draggingNode = null;
   state.activeTool = null;
-  state.mode = 'SELECT';
   state.ctrlPressed = false;
   clearSelection();
   hideAllToolInputs();
   resetToolButtons();
-  if (selectBtn) selectBtn.classList.add('active');
+  setMode('SELECT');
 });
 
 // Tool setup
