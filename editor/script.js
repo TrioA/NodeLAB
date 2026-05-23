@@ -87,6 +87,76 @@ const COMPONENT_TYPES = {
       ctx2d.fillText(`${comp.value}Ω`, mx, my - 12);
     }
   },
+  C: {
+    key: 'C',
+    label: 'Capacitor',
+    inputId: 'capacitorValue',
+
+    getDefaultValue() {
+      return 1e-6;
+    },
+
+    stamp(G, I, comp, ctxStamp) {
+      const { n1Idx, n2Idx } = ctxStamp;
+
+      const C = comp.value;
+
+      // backward euler:
+      // I = C * dV/dt
+      // becomes equivalent resistor + current source
+
+      const g = C / SIM_DT;
+
+      // conductance stamp
+      G[n1Idx][n1Idx] += g;
+      G[n2Idx][n2Idx] += g;
+      G[n1Idx][n2Idx] -= g;
+      G[n2Idx][n1Idx] -= g;
+
+      // history current source
+      const historyI = g * comp.capacitorVoltage;
+
+      I[n1Idx] += historyI;
+      I[n2Idx] -= historyI;
+    },
+
+    draw(ctx2d, comp) {
+      const mx = (comp.n1.x + comp.n2.x) / 2;
+      const my = (comp.n1.y + comp.n2.y) / 2;
+
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+
+      const angle = Math.atan2(dy, dx);
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      ctx2d.strokeStyle = '#2ecc71';
+      ctx2d.lineWidth = 2;
+
+      // capacitor plates
+      ctx2d.beginPath();
+
+      ctx2d.moveTo(-6, -10);
+      ctx2d.lineTo(-6, 10);
+
+      ctx2d.moveTo(6, -10);
+      ctx2d.lineTo(6, 10);
+
+      ctx2d.stroke();
+
+      ctx2d.restore();
+
+      ctx2d.fillStyle = '#eee';
+      ctx2d.font = '12px monospace';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'bottom';
+
+      ctx2d.fillText(`${comp.value}F`, mx, my - 12);
+    }
+  },
   V: {
     key: 'V',
     label: 'Voltage',
@@ -243,6 +313,9 @@ window.addEventListener('keydown', (e) => {
     case 'Digit5': // 5 = Wire (if you want)
       setMode('CREATE_RESISTOR');
       break;
+    case 'Digit6':
+      setMode('CREATE_CAPACITOR');
+      break;
     case 'Delete': {
       const obj = state.selectedObject;
       if (obj) {
@@ -369,7 +442,11 @@ function addComponent(type, n1, n2, value) {
     value,
     id: state.nextId++,
     current: 0,
-    hasError: false
+    hasError: false,
+
+    // capacitor state
+    capacitorVoltage: 0,
+    prevCurrent: 0
   };
 
   if (type === 'V') {
@@ -412,6 +489,12 @@ function drawCurrentFlow(ctx2d, comp) {
     lineWidth = 2;
     color = '52, 152, 219';
     alpha = 0.75;
+  } else if (comp.type === 'C') {
+    dashLength = 7;
+    gapLength = 5;
+    lineWidth = 2;
+    color = '46, 204, 113';
+    alpha = 0.8;
   } else {
     dashLength = 7;
     gapLength = 5;
@@ -701,6 +784,17 @@ function solveCircuit() {
         } else if (c.type === 'R') {
           c.current = (c.n1.vx - c.n2.vx) / c.value;
         }
+        else if (c.type === 'C') {
+
+          const voltageNow = c.n1.vx - c.n2.vx;
+
+          c.current =
+            c.value *
+            ((voltageNow - c.capacitorVoltage) / SIM_DT);
+
+          // save voltage for next timestep
+          c.capacitorVoltage = voltageNow;
+        }
       }
       calculateWireCurrents(groupNodes, groupComponents);
     }
@@ -774,6 +868,7 @@ function updatePropertiesBox() {
     if (c.type === 'R') valueLabel = 'Resistance (Ω)';
     else if (c.type === 'V') valueLabel = 'Voltage (V)';
     else if (c.type === 'W') valueLabel = 'Wire Resistance (Ω)';
+    else if (c.type === 'C') valueLabel = 'Capacitance (F)';
 
     const v1 = c.n1.vx?.toFixed(2) ?? '-';
     const v2 = c.n2.vx?.toFixed(2) ?? '-';
@@ -903,6 +998,7 @@ function voltageColor(v) {
 }
 
 let prevTime = Date.now();
+const SIM_DT = 0.05; // 50ms simulation step
 
 function draw() {
   const now = Date.now();
@@ -1143,6 +1239,41 @@ function draw() {
       ctx.moveTo(obj.n2.x, obj.n2.y);
       ctx.lineTo(mx + ux * 16, my + uy * 16);
       ctx.stroke();
+    } else if (obj.type === 'C') {
+      // Outlined rect matching resistor shape
+      const mx = (obj.n1.x + obj.n2.x) / 2;
+      const my = (obj.n1.y + obj.n2.y) / 2;
+      const dx = obj.n2.x - obj.n1.x;
+      const dy = obj.n2.y - obj.n1.y;
+      const angle = Math.atan2(dy, dx);
+      const rectLength = 24 + 6;
+      const rectHeight = 12 + 6;
+      // Outer soft glow rect
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.rotate(angle);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = `rgba(46, 204, 113, ${selPulse * 0.45})`;
+      ctx.shadowBlur = 0;
+      ctx.strokeRect(-rectLength / 2, -rectHeight / 2, rectLength, rectHeight);
+      // Inner crisp rect
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = `rgba(46, 204, 113, ${selPulse})`;
+      ctx.shadowColor = '#00e5ff';
+      ctx.shadowBlur = selBlur;
+      ctx.strokeRect(-rectLength / 2, -rectHeight / 2, rectLength, rectHeight);
+      ctx.restore();
+      // Line segments from nodes to rect
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(46, 204, 113, ${selPulse * 0.8})`;
+      ctx.shadowBlur = 0;
+      const ux = Math.cos(angle), uy = Math.sin(angle);
+      ctx.beginPath();
+      ctx.moveTo(obj.n1.x, obj.n1.y);
+      ctx.lineTo(mx - ux * rectLength / 2, my - uy * rectLength / 2);
+      ctx.moveTo(obj.n2.x, obj.n2.y);
+      ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -1285,6 +1416,9 @@ function draw() {
         } else if (c.type === 'W') {
           settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} Ω</span></div>`;
           resHtml = `<div class="tooltip-row"><span class="tooltip-label">Resistance:</span><span class="tooltip-val">${c.value} Ω</span></div>`;
+        } else if (c.type === 'C') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} F</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Capacitor</span></div>`;
         }
 
         const v1 = c.n1.vx != null ? `${c.n1.vx.toFixed(2)} V` : '-';
@@ -1354,6 +1488,7 @@ canvas.addEventListener('mousedown', (e) => {
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
 
+  // right button panning uses screen space
   if (e.button === 2) {
     state.panning = true;
     state.lastMouseX = sx;
@@ -1361,18 +1496,12 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
 
+  // convert to world space for everything else
   const { x, y } = screenToWorld(sx, sy);
   const gx = snapToGrid(x);
   const gy = snapToGrid(y);
 
-  if (state.mode === 'DELETE') {
-    const n = findNodeAt(gx, gy);
-    if (n) { deleteNode(n); return; }
-    const c = findComponentAt(gx, gy);
-    if (c) deleteComponent(c);
-    return;
-  }
-
+  // use gx, gy for findNodeAt / addNode / placement
   if (state.mode === 'SELECT') {
     const n = findNodeAt(gx, gy);
     if (n) {
@@ -1398,7 +1527,8 @@ canvas.addEventListener('mousedown', (e) => {
 
   if (state.mode === 'CREATE_RESISTOR' ||
     state.mode === 'CREATE_VOLTAGE' ||
-    state.mode === 'CREATE_WIRE') {
+    state.mode === 'CREATE_WIRE' ||
+    state.mode === 'CREATE_CAPACITOR') {
 
     const n = findNodeAt(gx, gy);
     if (!n) return;
@@ -1406,7 +1536,8 @@ canvas.addEventListener('mousedown', (e) => {
     const toolMap = {
       CREATE_RESISTOR: 'R',
       CREATE_VOLTAGE: 'V',
-      CREATE_WIRE: 'W'
+      CREATE_WIRE: 'W',
+      CREATE_CAPACITOR: 'C'
     };
     const toolType = toolMap[state.mode];
     const value = getCurrentToolValue(toolType);
@@ -1554,12 +1685,14 @@ function setMode(mode) {
     CREATE_RESISTOR: 'addResistor',
     CREATE_VOLTAGE: 'addVoltage',
     CREATE_WIRE: 'addWire',
-    CREATE_NODE: 'addNodeBtn'
+    CREATE_NODE: 'addNodeBtn',
+    CREATE_CAPACITOR: 'addCapacitor'
   };
   const toolMap = {
     CREATE_RESISTOR: 'R',
     CREATE_VOLTAGE: 'V',
-    CREATE_WIRE: 'W'
+    CREATE_WIRE: 'W',
+    CREATE_CAPACITOR: 'C'
   };
 
   state.activeTool = toolMap[mode] || null;
@@ -1647,6 +1780,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 setupToolButton('addResistor', 'CREATE_RESISTOR');
 setupToolButton('addVoltage', 'CREATE_VOLTAGE');
 setupToolButton('addWire', 'CREATE_WIRE');
+setupToolButton('addCapacitor', 'CREATE_CAPACITOR');
 
 // Simulation loop
 setInterval(solveCircuit, 50);
