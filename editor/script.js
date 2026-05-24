@@ -13,8 +13,9 @@ stats.showPanel(0);
 
 document.body.appendChild(stats.dom);
 
-stats.dom.style.position = "absolute";
-stats.dom.style.left = "10px";
+stats.dom.style.position = "fixed";
+stats.dom.style.left = "auto";
+stats.dom.style.right = "10px";
 stats.dom.style.bottom = "10px";
 stats.dom.style.top = "auto";
 
@@ -2627,6 +2628,12 @@ canvas.addEventListener('mousemove', (e) => {
   const world = screenToWorld(sx, sy);
   state.mouse.x = snapToGrid(world.x);
   state.mouse.y = snapToGrid(world.y);
+
+  if (state.ctrlPressed) {
+    document.getElementById("mouseCoords").innerText = `X: ${world.x.toFixed(2)} · Y: ${world.y.toFixed(2)}`
+  } else {
+    document.getElementById("mouseCoords").innerText = `X: ${state.mouse.x} · Y: ${state.mouse.y}`
+  }
 
   if (state.draggingNode) {
     state.draggingNode.x = state.mouse.x;
