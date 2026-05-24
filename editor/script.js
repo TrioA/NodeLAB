@@ -4,7 +4,7 @@ const info = document.getElementById('info');
 
 let width, height;
 const GRID_SIZE = 10;
-const SUBSTEPS = 200;
+const SUBSTEPS = 20;
 const SIM_DT = 0.05 / SUBSTEPS;
 
 const stats = new Stats();
@@ -50,6 +50,10 @@ const state = {
   lastMouseY: 0,
   scale: 1
 };
+
+const undoStack = [];
+const redoStack = [];
+const MAX_HISTORY = 100;
 
 let currentAnimTime = 0;
 let simTime = 0; // tracks real simulation time (seconds)
@@ -726,6 +730,22 @@ window.addEventListener('keydown', (e) => {
       }
       break;
   }
+
+  // Undo and Redo
+  if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+
+    if (e.shiftKey) {
+      redo();
+    } else {
+      undo();
+    }
+  }
+
+  if (e.ctrlKey && e.key.toLowerCase() === 'y') {
+    e.preventDefault();
+    redo();
+  }
 });
 window.addEventListener('keyup', (e) => {
   if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
@@ -783,6 +803,7 @@ function findComponentAt(x, y) {
 }
 
 function addNode(x, y) {
+  pushUndoState();
   const n = {
     x: snapToGrid(x),
     y: snapToGrid(y),
@@ -797,6 +818,7 @@ function addNode(x, y) {
   return n;
 }
 function addComponent(type, n1, n2, value, extra) {
+  pushUndoState();
   const comp = {
     type,
     n1,
@@ -821,8 +843,109 @@ function addComponent(type, n1, n2, value, extra) {
     comp.frequency = (extra && extra.frequency) ? extra.frequency : 50;
     comp.phase = 0;
   }
+  if (type === 'GND') {
+    setGroundNode(n1);
+  }
 
   state.components.push(comp);
+  saveCircuitToURL();
+}
+
+function createCircuitSnapshot() {
+  return JSON.stringify(exportCircuitData());
+}
+
+function loadCircuitSnapshot(snapshot) {
+  importCircuitData(JSON.parse(snapshot));
+}
+
+function pushUndoState() {
+  undoStack.push(createCircuitSnapshot());
+
+  if (undoStack.length > MAX_HISTORY) {
+    undoStack.shift();
+  }
+
+  redoStack.length = 0;
+}
+
+function undo() {
+  if (!undoStack.length) return;
+
+  redoStack.push(createCircuitSnapshot());
+
+  const snapshot = undoStack.pop();
+
+  loadCircuitSnapshot(snapshot);
+
+  clearSelection();
+}
+
+function redo() {
+  if (!redoStack.length) return;
+
+  undoStack.push(createCircuitSnapshot());
+
+  const snapshot = redoStack.pop();
+
+  loadCircuitSnapshot(snapshot);
+
+  clearSelection();
+}
+
+function exportCircuitData() {
+  return {
+    nodes: state.nodes.map(n => ({
+      id: n.id,
+      x: n.x,
+      y: n.y
+    })),
+
+    components: state.components.map(c => ({
+      id: c.id,
+      type: c.type,
+      n1: c.n1.id,
+      n2: c.n2.id,
+      value: c.value,
+      polarity: c.polarity,
+      frequency: c.frequency,
+      phase: c.phase,
+      ledColor: c.ledColor,
+      isClosed: c.isClosed
+    })),
+
+    nextId: state.nextId
+  };
+}
+function importCircuitData(data) {
+  state.nodes = [];
+  state.components = [];
+
+  const nodeMap = new Map();
+
+  for (const n of data.nodes) {
+    const node = {
+      id: n.id,
+      x: n.x,
+      y: n.y,
+      vx: 0
+    };
+
+    nodeMap.set(node.id, node);
+
+    state.nodes.push(node);
+  }
+
+  for (const c of data.components) {
+    state.components.push({
+      ...c,
+      n1: nodeMap.get(c.n1),
+      n2: nodeMap.get(c.n2)
+    });
+  }
+
+  state.nextId = data.nextId || 1;
+
   saveCircuitToURL();
 }
 
@@ -953,6 +1076,167 @@ function loadCircuitFromURL() {
   }
 }
 
+const SAVE_KEY = 'circuitsim_saves';
+
+function getCircuitSaveData() {
+  return {
+    nodes: state.nodes.map(n => ({
+      x: n.x,
+      y: n.y,
+      ground: state.groundNode === n
+    })),
+
+    components: state.components.map(c => ({
+      type: c.type,
+      value: c.value,
+
+      n1: state.nodes.indexOf(c.n1),
+      n2: state.nodes.indexOf(c.n2),
+
+      polarity: c.polarity,
+      frequency: c.frequency,
+      phase: c.phase,
+      ledColor: c.ledColor,
+      isClosed: c.isClosed
+    }))
+  };
+}
+
+function saveCircuitToLocalStorage() {
+  const name = prompt('Save name?');
+
+  if (!name) return;
+
+  const saves =
+    JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
+
+  const raw = JSON.stringify(getCircuitSaveData());
+
+  const compressed =
+    LZString.compressToEncodedURIComponent(raw);
+
+  saves.unshift({
+    id: Date.now(),
+
+    name,
+
+    data: compressed,
+
+    createdAt: Date.now()
+  });
+
+  localStorage.setItem(
+    SAVE_KEY,
+    JSON.stringify(saves)
+  );
+
+  refreshSaveMenu();
+}
+
+function loadCircuitSave(save) {
+  const raw =
+    LZString.decompressFromEncodedURIComponent(save.data);
+
+  if (!raw) return;
+
+  const data = JSON.parse(raw);
+
+  state.nodes = [];
+  state.components = [];
+  state.groundNode = null;
+
+  for (const n of data.nodes) {
+    const node = {
+      x: n.x,
+      y: n.y,
+      vx: 0
+    };
+
+    state.nodes.push(node);
+
+    if (n.ground) {
+      state.groundNode = node;
+    }
+  }
+
+  for (const c of data.components) {
+    const comp = createComponent(
+      c.type,
+      state.nodes[c.n1],
+      state.nodes[c.n2],
+      c.value
+    );
+
+    comp.polarity = c.polarity;
+    comp.frequency = c.frequency;
+    comp.phase = c.phase;
+    comp.ledColor = c.ledColor;
+    comp.isClosed = c.isClosed;
+
+    state.components.push(comp);
+  }
+
+  clearSelection();
+}
+
+function refreshSaveMenu() {
+  const saveList =
+    document.getElementById('saveList');
+
+  if (!saveList) return;
+
+  const saves =
+    JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
+
+  saveList.innerHTML = '';
+
+  for (const save of saves) {
+    const el = document.createElement('div');
+
+    el.className = 'save-entry';
+
+    const date =
+      new Date(save.createdAt).toLocaleString();
+
+    el.innerHTML = `
+    <div class="save-entry-main">
+      <div class="save-entry-title">${save.name}</div>
+      <div class="save-entry-date">${date}</div>
+    </div>
+
+    <button class="save-delete-btn">×</button>
+`;
+
+    const deleteBtn =
+      el.querySelector('.save-delete-btn');
+
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+
+      const saves =
+        JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
+
+      const filtered =
+        saves.filter(s => s.id !== save.id);
+
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify(filtered)
+      );
+
+      refreshSaveMenu();
+    });
+
+    el.addEventListener('click', () => {
+      loadCircuitSave(save);
+
+      document.getElementById('saveMenu').classList.remove('open');
+    });
+
+    saveList.appendChild(el);
+  }
+}
+
 function drawCurrentFlow(ctx2d, comp) {
   const n1 = comp.n1;
   const n2 = comp.n2;
@@ -1033,6 +1317,7 @@ function getConnectionsForNode(node) {
   return count;
 }
 function deleteComponent(comp) {
+  pushUndoState();
   state.components = state.components.filter(c => c !== comp);
   if (state.selectedObject === comp) {
     state.selectedObject = null;
@@ -1041,6 +1326,7 @@ function deleteComponent(comp) {
   saveCircuitToURL();
 }
 function deleteNode(node) {
+  pushUndoState();
   const connectedCount = getConnectionsForNode(node);
   if (connectedCount > 3) {
     const ok = confirm(
@@ -1078,6 +1364,97 @@ function unionElectricalNodes(n1, n2, parentMap, nodesList) {
       }
     }
   }
+}
+
+function getConnectedNodes(startNode) {
+  const visited = new Set();
+  const stack = [startNode];
+
+  while (stack.length) {
+    const node = stack.pop();
+
+    if (visited.has(node)) continue;
+    visited.add(node);
+
+    for (const c of state.components) {
+      if (c.n1 === node && !visited.has(c.n2)) {
+        stack.push(c.n2);
+      }
+
+      if (c.n2 === node && !visited.has(c.n1)) {
+        stack.push(c.n1);
+      }
+    }
+  }
+
+  return Array.from(visited);
+}
+
+function validateGrounds() {
+  for (const node of state.nodes) {
+    if (!node.isGround) continue;
+
+    const connected = getConnectedNodes(node);
+
+    const grounds = connected.filter(n => n.isGround);
+
+    const uniqueVoltages = [...new Set(
+      grounds.map(g => g.groundVoltage || 0)
+    )];
+
+    if (uniqueVoltages.length > 1) {
+      alert("Ground conflict detected in connected circuit!");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function setGroundNode(node) {
+  pushUndoState();
+  const connectedNodes = getConnectedNodes(node);
+
+  // grounds only in THIS connected group
+  const groupGrounds = state.components.filter(c =>
+    c.type === 'GND' &&
+    connectedNodes.includes(c.n1)
+  );
+
+  // toggle OFF if already grounded
+  const existing = groupGrounds.find(c => c.n1 === node);
+
+  if (existing) {
+    state.components = state.components.filter(c => c !== existing);
+    saveCircuitToURL();
+    return;
+  }
+
+  // check conflicting grounds
+  for (const gnd of groupGrounds) {
+    const otherNode = gnd.n1;
+
+    if (
+      otherNode.vx != null &&
+      node.vx != null &&
+      Math.abs(otherNode.vx - node.vx) > 0.001
+    ) {
+      showSolveError(
+        'Conflicting grounds detected in same circuit group'
+      );
+      return;
+    }
+  }
+
+  // add ground component
+  state.components.push({
+    id: state.nextId++,
+    type: 'GND',
+    n1: node,
+    n2: node
+  });
+
+  saveCircuitToURL();
 }
 
 // DSU for independent circuits
@@ -1376,7 +1753,7 @@ function updatePropertiesBox() {
   if (isNode) {
     const n = obj;
 
-    const isGround = state.groundNode === n;
+    const isGround = state.components.some(c => c.type === 'GND' && c.n1 === n);
 
     content.innerHTML = `
     <div class="properties-field">
@@ -1418,22 +1795,23 @@ function updatePropertiesBox() {
   `;
 
     document.getElementById('propX').addEventListener('input', (e) => {
+      pushUndoState();
       const v = snapToGrid(parseFloat(e.target.value));
       if (!isNaN(v)) n.x = v;
       saveCircuitToURL();
     });
 
     document.getElementById('propY').addEventListener('input', (e) => {
+      pushUndoState();
       const v = snapToGrid(parseFloat(e.target.value));
       if (!isNaN(v)) n.y = v;
       saveCircuitToURL();
     });
 
     document.getElementById('propSetGround').addEventListener('click', () => {
-      if (state.groundNode === n) {
-        state.groundNode = null;
-      } else {
-        state.groundNode = n;
+      pushUndoState();
+      if (!state.groundNode) {
+        setGroundNode(n);
       }
 
       updatePropertiesBox();
@@ -1441,9 +1819,10 @@ function updatePropertiesBox() {
     });
 
     document.getElementById('propDelete').addEventListener('click', () => {
-      if (state.groundNode === n) {
-        state.groundNode = null;
-      }
+      pushUndoState();
+      state.components = state.components.filter(c =>
+        !(c.type === 'GND' && c.n1 === n)
+      );
 
       deleteNode(n);
       clearSelection();
@@ -1526,6 +1905,7 @@ function updatePropertiesBox() {
     <button class="delete-btn" id="propDelete">Delete Component</button>
   `;
     document.getElementById('propValue')?.addEventListener('input', (e) => {
+      pushUndoState();
       const v = parseFloat(e.target.value);
       if (!isNaN(v) && v > 0) c.value = v;
       saveCircuitToURL();
@@ -1533,11 +1913,13 @@ function updatePropertiesBox() {
 
     if (c.type === 'ACV') {
       document.getElementById('propFrequency')?.addEventListener('input', (e) => {
+        pushUndoState();
         const v = parseFloat(e.target.value);
         if (!isNaN(v) && v > 0) c.frequency = v;
         saveCircuitToURL();
       });
       document.getElementById('propPhase')?.addEventListener('input', (e) => {
+        pushUndoState();
         const v = parseFloat(e.target.value);
         if (!isNaN(v)) c.phase = v * Math.PI / 180;
         saveCircuitToURL();
@@ -1549,6 +1931,7 @@ function updatePropertiesBox() {
       const polTextEl = document.getElementById('propPolarityText');
       if (toggleBtn && polTextEl) {
         toggleBtn.addEventListener('click', () => {
+          pushUndoState();
           c.polarity = (c.polarity || 1) * -1;
           const pTxt = c.polarity === 1 ? 'N1 is +, N2 is -' : 'N1 is -, N2 is +';
           polTextEl.textContent = pTxt;
@@ -1561,12 +1944,14 @@ function updatePropertiesBox() {
 
     if (ledColorEl) {
       ledColorEl.addEventListener('input', (e) => {
+        pushUndoState();
         c.ledColor = e.target.value;
         saveCircuitToURL();
       });
     }
 
     document.getElementById('propDelete').addEventListener('click', () => {
+      pushUndoState();
       deleteComponent(c);
       clearSelection();
     });
@@ -2045,7 +2430,7 @@ function draw() {
   }
 
   // Placement preview
-  if (state.activeTool && state.placing && state.placing.n1 && !state.deleteMode) {
+  if (state.activeTool && state.placing && state.placing.n1) {
     ctx.strokeStyle = '#666';
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
@@ -2176,6 +2561,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (state.mode === 'SELECT') {
     const n = findNodeAt(gx, gy);
     if (n) {
+      pushUndoState();
       state.selectedObject = n;
       state.draggingNode = n;
       updatePropertiesBox();
@@ -2320,6 +2706,47 @@ window.addEventListener('mouseup', () => {
   state.panning = false;
 });
 
+document.getElementById('newCircuitBtn').addEventListener('click', () => {
+  pushUndoState();
+  state.nodes = [];
+  state.components = [];
+  state.selectedObject = null;
+
+  hoveredNode = null;
+  hoveredComponent = null;
+
+  updatePropertiesBox();
+  updateInfo();
+  saveCircuitToURL();
+
+  renderSaveList();
+});
+
+const hamburgerBtn = document.getElementById('hamburgerBtn');
+const saveMenu = document.getElementById('saveMenu');
+
+hamburgerBtn.addEventListener('click', () => {
+  saveMenu.classList.toggle('open');
+});
+
+document.addEventListener('click', (e) => {
+  const insideMenu =
+    saveMenu.contains(e.target);
+
+  const clickedHamburger =
+    hamburgerBtn.contains(e.target);
+
+  if (!insideMenu && !clickedHamburger) {
+    saveMenu.classList.remove('open');
+  }
+});
+
+document.getElementById('saveCircuitBtn').addEventListener('click', () => {
+  saveCircuitToLocalStorage();
+});
+
+refreshSaveMenu();
+
 // ===== Tool UI helpers =====
 const selectBtn = document.getElementById('selectBtn');
 const addNodeBtn = document.getElementById('addNodeBtn');
@@ -2362,7 +2789,6 @@ function setMode(mode) {
   state.mode = mode;
   state.activeTool = null;
   state.placing = null;
-  state.deleteMode = (mode === 'DELETE');
   clearSelection();
 
   hideAllToolInputs();
@@ -2479,7 +2905,7 @@ if (deleteBtn) {
 }
 
 // Clear button
-document.getElementById('clearBtn').addEventListener('click', () => {
+/* document.getElementById('clearBtn').addEventListener('click', () => {
   state.nodes = [];
   state.components = [];
   state.nextId = 1;
@@ -2491,7 +2917,7 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   hideAllToolInputs();
   resetToolButtons();
   setMode('SELECT');
-});
+}); */
 
 // Tool setup
 setupToolButton('addResistor', 'CREATE_RESISTOR');
