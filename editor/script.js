@@ -904,14 +904,18 @@ function exportCircuitData() {
     components: state.components.map(c => ({
       id: c.id,
       type: c.type,
+
       n1: c.n1.id,
       n2: c.n2.id,
+
       value: c.value,
+
       polarity: c.polarity,
       frequency: c.frequency,
       phase: c.phase,
+
       ledColor: c.ledColor,
-      isClosed: c.isClosed
+      closed: !!c.closed   // use 'closed' consistently (was wrongly 'isClosed')
     })),
 
     nextId: state.nextId
@@ -928,19 +932,38 @@ function importCircuitData(data) {
       id: n.id,
       x: n.x,
       y: n.y,
-      vx: 0
+      vx: 0,
+      electricalNode: null,
+      electricalIndex: 0,
+      hasError: false
     };
 
     nodeMap.set(node.id, node);
-
     state.nodes.push(node);
   }
 
   for (const c of data.components) {
+    const n1 = nodeMap.get(Number(c.n1));
+    const n2 = nodeMap.get(Number(c.n2));
+
+    if (!n1 || !n2) continue;
+
     state.components.push({
-      ...c,
-      n1: nodeMap.get(c.n1),
-      n2: nodeMap.get(c.n2)
+      id: c.id,
+      type: c.type,
+      n1: n1,
+      n2: n2,
+      value: c.value ?? 1,
+      polarity: c.polarity ?? 1,
+      frequency: c.frequency ?? 50,
+      phase: c.phase ?? 0,
+      ledColor: c.ledColor ?? '#00ff88',
+      closed: !!c.closed,
+      current: 0,
+      displayBrightness: 0,
+      capacitorVoltage: 0,
+      historyCurrent: 0,
+      isOn: false
     });
   }
 
@@ -959,25 +982,26 @@ function saveCircuitToURL() {
 
   const data = [
     state.nodes.map(n => [
-      n.x,
-      n.y
+      n.id,       // [0] id — needed so loadCircuitFromURL can rebuild nodeRefs by index
+      n.x,        // [1]
+      n.y,        // [2]
+      n.isGround ? 1 : 0  // [3]
     ]),
 
     state.components.map(c => [
-      c.type,
-      nodeIndexMap.get(c.n1.id),
-      nodeIndexMap.get(c.n2.id),
+      c.type,                         // [0]
+      c.id,                           // [1] component id
+      nodeIndexMap.get(c.n1.id),      // [2] n1 index into nodes array
+      nodeIndexMap.get(c.n2.id),      // [3] n2 index into nodes array
+      c.value,                        // [4]
+      c.polarity || 0,                // [5]
+      c.frequency || 0,               // [6]
+      c.phase || 0,                   // [7]
+      c.ledColor || "",               // [8]
+      c.closed ? 1 : 0                // [9]
+    ]),
 
-      c.value,
-
-      c.polarity || 0,
-      c.frequency || 0,
-      c.phase || 0,
-
-      c.ledColor || "",
-
-      c.closed ? 1 : 0
-    ])
+    state.nextId                      // [2] top-level nextId
   ];
 
   const compressed =
@@ -1010,63 +1034,68 @@ function loadCircuitFromURL() {
 
     const data = JSON.parse(json);
 
-    const [savedNodes, savedComponents] = data;
+    const [savedNodes, savedComponents, savedNextId] = data;
 
     state.nodes = [];
     state.components = [];
 
-    let nodeRefs = [];
+    // nodeRefs[i] = node object, indexed the same as savedNodes[i]
+    const nodeRefs = [];
 
-    // recreate nodes
     for (const n of savedNodes) {
-
       const node = {
-        x: n[0],
-        y: n[1],
-
+        id: n[0],           // restored id
+        x: n[1],
+        y: n[2],
         vx: 0,
-
-        id: state.nextId++,
-
+        isGround: !!n[3],
         electricalNode: null,
         electricalIndex: 0,
         hasError: false
       };
 
       state.nodes.push(node);
-
       nodeRefs.push(node);
     }
 
-    // recreate components
     for (const c of savedComponents) {
+      const n1 = nodeRefs[c[2]];   // n1 index is now at [2]
+      const n2 = nodeRefs[c[3]];   // n2 index is now at [3]
 
-      const comp = {
+      if (!n1 || !n2) {
+        console.warn('Skipping component with missing node refs:', c);
+        continue;
+      }
+
+      state.components.push({
         type: c[0],
-
-        n1: nodeRefs[c[1]],
-        n2: nodeRefs[c[2]],
-
-        value: c[3],
-
-        polarity: c[4],
-        frequency: c[5],
-        phase: c[6],
-
-        ledColor: c[7] || "#00ff88",
-
-        closed: !!c[8],
-
-        id: state.nextId++,
-
+        id: c[1],           // component id restored
+        n1,
+        n2,
+        value: c[4],
+        polarity: c[5] || 1,
+        frequency: c[6] || 50,
+        phase: c[7] || 0,
+        ledColor: c[8] || '#00ff88',
+        closed: !!c[9],
         current: 0,
         displayBrightness: 0,
         capacitorVoltage: 0,
         historyCurrent: 0,
         hasError: false
-      };
+      });
+    }
 
-      state.components.push(comp);
+    // Restore nextId so new additions don't collide
+    if (savedNextId != null) {
+      state.nextId = savedNextId;
+    } else {
+      // fallback: derive from max existing id
+      const allIds = [
+        ...state.nodes.map(n => n.id || 0),
+        ...state.components.map(c => c.id || 0)
+      ];
+      state.nextId = (allIds.length ? Math.max(...allIds) : 0) + 1;
     }
 
   } catch (err) {
@@ -1078,29 +1107,6 @@ function loadCircuitFromURL() {
 
 const SAVE_KEY = 'circuitsim_saves';
 
-function getCircuitSaveData() {
-  return {
-    nodes: state.nodes.map(n => ({
-      x: n.x,
-      y: n.y,
-      ground: state.groundNode === n
-    })),
-
-    components: state.components.map(c => ({
-      type: c.type,
-      value: c.value,
-
-      n1: state.nodes.indexOf(c.n1),
-      n2: state.nodes.indexOf(c.n2),
-
-      polarity: c.polarity,
-      frequency: c.frequency,
-      phase: c.phase,
-      ledColor: c.ledColor,
-      isClosed: c.isClosed
-    }))
-  };
-}
 
 function saveCircuitToLocalStorage() {
   const name = prompt('Save name?');
@@ -1110,18 +1116,16 @@ function saveCircuitToLocalStorage() {
   const saves =
     JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
 
-  const raw = JSON.stringify(getCircuitSaveData());
+  // Reuse exportCircuitData — the same format used for undo/redo
+  const raw = JSON.stringify(exportCircuitData());
 
   const compressed =
     LZString.compressToEncodedURIComponent(raw);
 
   saves.unshift({
     id: Date.now(),
-
     name,
-
     data: compressed,
-
     createdAt: Date.now()
   });
 
@@ -1141,40 +1145,8 @@ function loadCircuitSave(save) {
 
   const data = JSON.parse(raw);
 
-  state.nodes = [];
-  state.components = [];
-  state.groundNode = null;
-
-  for (const n of data.nodes) {
-    const node = {
-      x: n.x,
-      y: n.y,
-      vx: 0
-    };
-
-    state.nodes.push(node);
-
-    if (n.ground) {
-      state.groundNode = node;
-    }
-  }
-
-  for (const c of data.components) {
-    const comp = createComponent(
-      c.type,
-      state.nodes[c.n1],
-      state.nodes[c.n2],
-      c.value
-    );
-
-    comp.polarity = c.polarity;
-    comp.frequency = c.frequency;
-    comp.phase = c.phase;
-    comp.ledColor = c.ledColor;
-    comp.isClosed = c.isClosed;
-
-    state.components.push(comp);
-  }
+  // importCircuitData handles all node/component reconstruction correctly
+  importCircuitData(data);
 
   clearSelection();
 }
@@ -2716,10 +2688,10 @@ document.getElementById('newCircuitBtn').addEventListener('click', () => {
   hoveredComponent = null;
 
   updatePropertiesBox();
-  updateInfo();
+  // updateInfo();
   saveCircuitToURL();
 
-  renderSaveList();
+  // renderSaveList();
 });
 
 const hamburgerBtn = document.getElementById('hamburgerBtn');
