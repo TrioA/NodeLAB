@@ -4,10 +4,23 @@ const info = document.getElementById('info');
 
 let width, height;
 const GRID_SIZE = 10;
+const SUBSTEPS = 200;
+const SIM_DT = 0.05 / SUBSTEPS;
+
+const stats = new Stats();
+
+stats.showPanel(0);
+
+document.body.appendChild(stats.dom);
+
+stats.dom.style.position = "absolute";
+stats.dom.style.left = "10px";
+stats.dom.style.bottom = "10px";
+stats.dom.style.top = "auto";
 
 function resize() {
-  width = canvas.clientWidth = canvas.parentElement.clientWidth;
-  height = canvas.clientHeight = canvas.parentElement.clientHeight;
+  width = canvas.clientWidth || canvas.parentElement.clientWidth;
+  height = canvas.clientHeight || canvas.parentElement.clientHeight;
   canvas.width = width * devicePixelRatio;
   canvas.height = height * devicePixelRatio;
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
@@ -26,6 +39,7 @@ const state = {
   activeTool: null,   // 'R'|'V'|'W' or null
   mode: 'SELECT',   // SELECT | CREATE_NODE | CREATE_RESISTOR | CREATE_VOLTAGE | CREATE_WIRE | DELETE
   selectedObject: null,
+  time: 0,
 
   mouse: { x: 0, y: 0, rawX: 0, rawY: 0 },
   ctrlPressed: false,
@@ -38,6 +52,7 @@ const state = {
 };
 
 let currentAnimTime = 0;
+let simTime = 0; // tracks real simulation time (seconds)
 
 // ===== Component registry =====
 const COMPONENT_TYPES = {
@@ -96,28 +111,18 @@ const COMPONENT_TYPES = {
       return 1e-6;
     },
 
-    stamp(G, I, comp, ctxStamp) {
-      const { n1Idx, n2Idx } = ctxStamp;
+    stamp(A, b, comp, ctx) {
+      let { n1Idx, n2Idx } = ctx;
 
-      const C = comp.value;
+      let G = comp.value / SIM_DT;
 
-      // backward euler:
-      // I = C * dV/dt
-      // becomes equivalent resistor + current source
+      A[n1Idx][n1Idx] += G;
+      A[n2Idx][n2Idx] += G;
+      A[n1Idx][n2Idx] -= G;
+      A[n2Idx][n1Idx] -= G;
 
-      const g = C / SIM_DT;
-
-      // conductance stamp
-      G[n1Idx][n1Idx] += g;
-      G[n2Idx][n2Idx] += g;
-      G[n1Idx][n2Idx] -= g;
-      G[n2Idx][n1Idx] -= g;
-
-      // history current source
-      const historyI = g * comp.capacitorVoltage;
-
-      I[n1Idx] += historyI;
-      I[n2Idx] -= historyI;
+      b[n1Idx] += comp.historyCurrent;
+      b[n2Idx] -= comp.historyCurrent;
     },
 
     draw(ctx2d, comp) {
@@ -239,6 +244,313 @@ const COMPONENT_TYPES = {
       }
     }
   },
+  D: {
+    key: 'D',
+    label: 'Diode',
+    inputId: 'diodeValue',
+
+    getDefaultValue() {
+      return 0.7; // forward voltage drop
+    },
+
+    stamp(G, I, comp, ctxStamp) {
+      const { n1Idx, n2Idx } = ctxStamp;
+
+      const v1 = comp.n1.vx || 0;
+      const v2 = comp.n2.vx || 0;
+
+      const vd = v1 - v2;
+
+      // ON/OFF approximation
+      const on = vd > comp.value;
+
+      comp.isOn = on;
+
+      const resistance = on ? 1 : 1e9;
+      const g = 1 / resistance;
+
+      G[n1Idx][n1Idx] += g;
+      G[n2Idx][n2Idx] += g;
+      G[n1Idx][n2Idx] -= g;
+      G[n2Idx][n1Idx] -= g;
+    },
+
+    draw(ctx2d, comp) {
+      const mx = (comp.n1.x + comp.n2.x) / 2;
+      const my = (comp.n1.y + comp.n2.y) / 2;
+
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+
+      const angle = Math.atan2(dy, dx);
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      ctx2d.strokeStyle = '#ff66aa';
+      ctx2d.lineWidth = 2;
+
+      // triangle
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, -8);
+      ctx2d.lineTo(-10, 8);
+      ctx2d.lineTo(4, 0);
+      ctx2d.closePath();
+      ctx2d.stroke();
+
+      // line
+      ctx2d.beginPath();
+      ctx2d.moveTo(6, -10);
+      ctx2d.lineTo(6, 10);
+      ctx2d.stroke();
+
+      ctx2d.restore();
+    }
+  },
+  LED: {
+    key: 'LED',
+    label: 'LED',
+    inputId: 'ledValue',
+
+    getDefaultValue() {
+      return 2.0;
+    },
+
+    stamp(G, I, comp, ctxStamp) {
+      const { n1Idx, n2Idx } = ctxStamp;
+
+      const v1 = comp.n1.vx || 0;
+      const v2 = comp.n2.vx || 0;
+
+      const vd = v1 - v2;
+
+      // LED parameters
+      const Vf = comp.value || 2.0;
+      const softness = 0.03;
+
+      // smooth transition
+      const t =
+        1 / (1 + Math.exp(-(vd - Vf) / softness));
+
+      // MUCH smaller resistance range
+      const offResistance = 1e6;
+      const onResistance = 8;
+
+      const resistance =
+        offResistance -
+        t * (offResistance - onResistance);
+
+      const g = 1 / resistance;
+
+      comp.isOn = t > 0.15;
+
+      G[n1Idx][n1Idx] += g;
+      G[n2Idx][n2Idx] += g;
+      G[n1Idx][n2Idx] -= g;
+      G[n2Idx][n1Idx] -= g;
+    },
+
+    draw(ctx2d, comp) {
+      const mx = (comp.n1.x + comp.n2.x) / 2;
+      const my = (comp.n1.y + comp.n2.y) / 2;
+
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+
+      const angle = Math.atan2(dy, dx);
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      const glow = 5 + (comp.displayBrightness || 0) * 55;
+
+      if (comp.isOn) {
+        ctx2d.shadowColor = comp.ledColor || '#00ff88';
+        ctx2d.shadowBlur = glow;
+      }
+
+      // white outline
+      const brightness =
+        0.25 + (comp.displayBrightness || 0) * 0.75;
+
+      ctx2d.globalAlpha = brightness;
+
+      ctx2d.strokeStyle = comp.ledColor || '#00ff88';
+      ctx2d.lineWidth = 4;
+
+      // diode shape
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, -8);
+      ctx2d.lineTo(-10, 8);
+      ctx2d.lineTo(4, 0);
+      ctx2d.closePath();
+      ctx2d.stroke();
+
+      // line
+      ctx2d.beginPath();
+      ctx2d.moveTo(6, -10);
+      ctx2d.lineTo(6, 10);
+      ctx2d.stroke();
+
+      // actual LED color
+      ctx2d.strokeStyle = comp.ledColor || '#00ff88';
+      ctx2d.lineWidth = 2;
+
+      // triangle
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, -8);
+      ctx2d.lineTo(-10, 8);
+      ctx2d.lineTo(4, 0);
+      ctx2d.closePath();
+      ctx2d.stroke();
+
+      // line
+      ctx2d.beginPath();
+      ctx2d.moveTo(6, -10);
+      ctx2d.lineTo(6, 10);
+      ctx2d.stroke();
+
+      // glow arrows
+      if (comp.isOn) {
+        ctx2d.beginPath();
+        ctx2d.moveTo(0, -12);
+        ctx2d.lineTo(8, -20);
+
+        ctx2d.moveTo(5, -8);
+        ctx2d.lineTo(13, -16);
+        ctx2d.stroke();
+      }
+
+      ctx2d.restore();
+    }
+  },
+  SW: {
+    key: 'SW',
+    label: 'Switch',
+    inputId: null,
+
+    getDefaultValue() {
+      return 0;
+    },
+
+    stamp(G, I, comp, ctxStamp) {
+      if (!comp.closed) return;
+
+      const { n1Idx, n2Idx } = ctxStamp;
+
+      const g = 1 / 0.05;
+
+      G[n1Idx][n1Idx] += g;
+      G[n2Idx][n2Idx] += g;
+      G[n1Idx][n2Idx] -= g;
+      G[n2Idx][n1Idx] -= g;
+    },
+
+    draw(ctx2d, comp) {
+      const mx = (comp.n1.x + comp.n2.x) / 2;
+      const my = (comp.n1.y + comp.n2.y) / 2;
+
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+
+      const angle = Math.atan2(dy, dx);
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      ctx2d.strokeStyle = '#ffffff';
+      ctx2d.lineWidth = 2;
+
+      ctx2d.beginPath();
+
+      if (comp.closed) {
+        ctx2d.moveTo(-10, 0);
+        ctx2d.lineTo(10, 0);
+      } else {
+        ctx2d.moveTo(-10, 0);
+        ctx2d.lineTo(4, -8);
+      }
+
+      ctx2d.stroke();
+
+      ctx2d.restore();
+    }
+  },
+  ACV: {
+    key: 'ACV',
+    label: 'AC Voltage',
+    inputId: 'acvAmplitude',
+    getDefaultValue() { return 5; },
+
+    stamp(G, I, comp, ctxStamp) {
+      const { n1Idx, n2Idx, vSrcBaseIndex, vSrcMap, N } = ctxStamp;
+      if (!vSrcMap.has(comp.id)) vSrcMap.set(comp.id, vSrcBaseIndex.value++);
+      const k = vSrcMap.get(comp.id);
+      const row = N + k;
+      G[n1Idx][row] += 1; G[n2Idx][row] -= 1;
+      G[row][n1Idx] += 1; G[row][n2Idx] -= 1;
+      const freq = comp.frequency || 50;
+      const amplitude = comp.value || 5;
+      const phase = comp.phase || 0;
+      I[row] += amplitude * Math.sin(2 * Math.PI * freq * simTime + phase);
+    },
+
+    draw(ctx2d, comp) {
+      const mx = (comp.n1.x + comp.n2.x) / 2;
+      const my = (comp.n1.y + comp.n2.y) / 2;
+      const radius = 12;
+
+      // filled circle (purple-tinted to distinguish from DC)
+      ctx2d.fillStyle = '#8e44ad';
+      ctx2d.beginPath();
+      ctx2d.arc(mx, my, radius, 0, Math.PI * 2);
+      ctx2d.fill();
+
+      // sine wave drawn inside the circle via clipping
+      ctx2d.save();
+      ctx2d.beginPath();
+      ctx2d.arc(mx, my, radius - 2, 0, Math.PI * 2);
+      ctx2d.clip();
+      ctx2d.strokeStyle = '#fff';
+      ctx2d.lineWidth = 1.5;
+      ctx2d.lineJoin = 'round';
+      ctx2d.beginPath();
+      const steps = 32;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const sx2 = mx - (radius - 2) + t * (radius - 2) * 2;
+        const sy2 = my - Math.sin(t * Math.PI * 2) * (radius * 0.6);
+        if (i === 0) ctx2d.moveTo(sx2, sy2); else ctx2d.lineTo(sx2, sy2);
+      }
+      ctx2d.stroke();
+      ctx2d.restore();
+
+      // label above: amplitude + freq
+      ctx2d.fillStyle = '#eee';
+      ctx2d.font = '10px monospace';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'bottom';
+      const freq = comp.frequency || 50;
+      const freqLabel = freq >= 1000 ? `${(freq / 1000).toFixed(1)}kHz` : `${freq}Hz`;
+      ctx2d.fillText(`${comp.value}V ${freqLabel}`, mx, my - radius - 2);
+
+      // ~ symbol along the terminal direction
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      const nx2 = -uy, ny2 = ux;
+      ctx2d.fillStyle = '#dda0ff';
+      ctx2d.font = 'bold 10px monospace';
+      ctx2d.textAlign = 'center';
+      ctx2d.textBaseline = 'middle';
+      ctx2d.fillText('~', mx + nx2 * 8 - ux * (radius + 5), my + ny2 * 8 - uy * (radius + 5));
+      ctx2d.fillText('~', mx + nx2 * 8 + ux * (radius + 5), my + ny2 * 8 + uy * (radius + 5));
+    }
+  },
   W: {
     key: 'W',
     label: 'Wire',
@@ -255,7 +567,47 @@ const COMPONENT_TYPES = {
       ctx2d.arc(mx, my, 3, 0, Math.PI * 2);
       ctx2d.fill();
     }
-  }
+  },
+  GND: {
+    key: "GND",
+    label: "Ground",
+
+    inputId: null,
+
+    getDefaultValue: () => 0,
+
+    stamp() { },
+
+    draw(ctx, comp) {
+
+      const x = comp.n1.x;
+      const y = comp.n1.y;
+
+      ctx.strokeStyle = "#00e5ff"; // Bluish color like of negative nodes
+      ctx.lineWidth = 2.2;
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      ctx.beginPath();
+
+      // stem
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + 12);
+
+      // bars
+      ctx.moveTo(x - 12, y + 12);
+      ctx.lineTo(x + 12, y + 12);
+
+      ctx.moveTo(x - 8, y + 18);
+      ctx.lineTo(x + 8, y + 18);
+
+      ctx.moveTo(x - 4, y + 24);
+      ctx.lineTo(x + 4, y + 24);
+
+      ctx.stroke();
+    }
+  },
 };
 
 // ===== Notification =====
@@ -416,6 +768,15 @@ function findNodeAt(x, y) {
 }
 function findComponentAt(x, y) {
   for (const c of state.components) {
+    if (c.type === "GND") {
+
+      const dx = x - c.n1.x;
+      const dy = y - (c.n1.y + 12);
+
+      if (Math.sqrt(dx * dx + dy * dy) < 16) {
+        return c;
+      }
+    }
     if (distToSegment({ x, y }, c.n1, c.n2) < 12) return c;
   }
   return null;
@@ -432,9 +793,10 @@ function addNode(x, y) {
     hasError: false
   };
   state.nodes.push(n);
+  saveCircuitToURL();
   return n;
 }
-function addComponent(type, n1, n2, value) {
+function addComponent(type, n1, n2, value, extra) {
   const comp = {
     type,
     n1,
@@ -442,18 +804,153 @@ function addComponent(type, n1, n2, value) {
     value,
     id: state.nextId++,
     current: 0,
+    displayBrightness: 0,
     hasError: false,
+    ledColor: '#00ff88',
 
     // capacitor state
     capacitorVoltage: 0,
-    prevCurrent: 0
+    prevCurrent: 0,
+    historyCurrent: 0
   };
 
   if (type === 'V') {
-    comp.polarity = 1; // + at n1, - at n2 by default
+    comp.polarity = 1;
+  }
+  if (type === 'ACV') {
+    comp.frequency = (extra && extra.frequency) ? extra.frequency : 50;
+    comp.phase = 0;
   }
 
   state.components.push(comp);
+  saveCircuitToURL();
+}
+
+function saveCircuitToURL() {
+
+  const nodeIndexMap = new Map();
+
+  state.nodes.forEach((n, i) => {
+    nodeIndexMap.set(n.id, i);
+  });
+
+  const data = [
+    state.nodes.map(n => [
+      n.x,
+      n.y
+    ]),
+
+    state.components.map(c => [
+      c.type,
+      nodeIndexMap.get(c.n1.id),
+      nodeIndexMap.get(c.n2.id),
+
+      c.value,
+
+      c.polarity || 0,
+      c.frequency || 0,
+      c.phase || 0,
+
+      c.ledColor || "",
+
+      c.closed ? 1 : 0
+    ])
+  ];
+
+  const compressed =
+    LZString.compressToEncodedURIComponent(
+      JSON.stringify(data)
+    );
+
+  history.replaceState(
+    null,
+    "",
+    "?c=" + compressed
+  );
+}
+
+function loadCircuitFromURL() {
+
+  const params =
+    new URLSearchParams(window.location.search);
+
+  const encoded = params.get("c");
+
+  if (!encoded) return;
+
+  try {
+
+    const json =
+      LZString.decompressFromEncodedURIComponent(
+        encoded
+      );
+
+    const data = JSON.parse(json);
+
+    const [savedNodes, savedComponents] = data;
+
+    state.nodes = [];
+    state.components = [];
+
+    let nodeRefs = [];
+
+    // recreate nodes
+    for (const n of savedNodes) {
+
+      const node = {
+        x: n[0],
+        y: n[1],
+
+        vx: 0,
+
+        id: state.nextId++,
+
+        electricalNode: null,
+        electricalIndex: 0,
+        hasError: false
+      };
+
+      state.nodes.push(node);
+
+      nodeRefs.push(node);
+    }
+
+    // recreate components
+    for (const c of savedComponents) {
+
+      const comp = {
+        type: c[0],
+
+        n1: nodeRefs[c[1]],
+        n2: nodeRefs[c[2]],
+
+        value: c[3],
+
+        polarity: c[4],
+        frequency: c[5],
+        phase: c[6],
+
+        ledColor: c[7] || "#00ff88",
+
+        closed: !!c[8],
+
+        id: state.nextId++,
+
+        current: 0,
+        displayBrightness: 0,
+        capacitorVoltage: 0,
+        historyCurrent: 0,
+        hasError: false
+      };
+
+      state.components.push(comp);
+    }
+
+  } catch (err) {
+
+    console.error("Failed to load circuit:", err);
+
+  }
 }
 
 function drawCurrentFlow(ctx2d, comp) {
@@ -489,6 +986,12 @@ function drawCurrentFlow(ctx2d, comp) {
     lineWidth = 2;
     color = '52, 152, 219';
     alpha = 0.75;
+  } else if (comp.type === 'ACV') {
+    dashLength = 6;
+    gapLength = 4;
+    lineWidth = 2;
+    color = '186, 85, 211';
+    alpha = 0.85;
   } else if (comp.type === 'C') {
     dashLength = 7;
     gapLength = 5;
@@ -535,6 +1038,7 @@ function deleteComponent(comp) {
     state.selectedObject = null;
     updatePropertiesBox();
   }
+  saveCircuitToURL();
 }
 function deleteNode(node) {
   const connectedCount = getConnectionsForNode(node);
@@ -550,6 +1054,7 @@ function deleteNode(node) {
     state.selectedObject = null;
     updatePropertiesBox();
   }
+  saveCircuitToURL();
 }
 
 // ===== Electrical grouping =====
@@ -729,7 +1234,7 @@ function solveCircuit() {
     }
 
     const N = electricalNodes.length;
-    const numV = groupComponents.filter(c => c.type === 'V').length;
+    const numV = groupComponents.filter(c => c.type === 'V' || c.type === 'ACV').length;
     const size = N + numV;
 
     const G = Array.from({ length: size }, () => Array(size).fill(0));
@@ -755,9 +1260,23 @@ function solveCircuit() {
     }
 
     if (N > 0) {
-      G[0].fill(0);
-      G[0][0] = 1;
-      I[0] = 0;
+      const grounds = groupComponents.filter(c => c.type === "GND");
+      if (grounds.length > 0) {
+        for (const gnd of grounds) {
+          const idx = gnd.n1.electricalIndex;
+
+          G[idx].fill(0);
+          G[idx][idx] = 1;
+          I[idx] = 0;
+        }
+      } else {
+        // fallback if no ground exists
+        G[0].fill(0);
+
+        G[0][0] = 1;
+
+        I[0] = 0;
+      }
     }
 
     const v = gaussSolve(G, I);
@@ -778,22 +1297,48 @@ function solveCircuit() {
       }
       for (const c of groupComponents) {
         c.hasError = false;
-        if (c.type === 'V') {
+        if (c.type === 'V' || c.type === 'ACV') {
           const k = vSrcMap.get(c.id);
           c.current = v[N + k];
-        } else if (c.type === 'R') {
-          c.current = (c.n1.vx - c.n2.vx) / c.value;
+        } else if (
+          c.type === 'R' ||
+          c.type === 'D' ||
+          c.type === 'LED' ||
+          c.type === 'SW'
+        ) {
+          let resistance = c.value;
+
+          if (c.type === 'D') {
+            resistance = c.isOn ? 1 : 1e9;
+          }
+
+          if (c.type === 'LED') {
+            resistance = c.isOn ? 8 : 1e6;
+          }
+
+          if (c.type === 'SW') {
+            resistance = c.closed ? 0.001 : 1e9;
+          }
+
+          c.current = (c.n1.vx - c.n2.vx) / resistance;
+
+          if (c.type === 'LED') {
+            const targetBrightness =
+              c.isOn ? Math.min(1, Math.abs(c.current) * 20) : 0;
+
+            // smooth averaging
+            c.displayBrightness += (targetBrightness - c.displayBrightness) * 0.15;
+          }
         }
         else if (c.type === 'C') {
-
           const voltageNow = c.n1.vx - c.n2.vx;
 
-          c.current =
-            c.value *
-            ((voltageNow - c.capacitorVoltage) / SIM_DT);
+          c.current = c.value * ((voltageNow - c.capacitorVoltage) / SIM_DT);
 
           // save voltage for next timestep
-          c.capacitorVoltage = voltageNow;
+          c.capacitorVoltage += (voltageNow - c.capacitorVoltage) * 0.15;
+
+          c.historyCurrent = (c.value / SIM_DT) * c.capacitorVoltage;
         }
       }
       calculateWireCurrents(groupNodes, groupComponents);
@@ -830,34 +1375,79 @@ function updatePropertiesBox() {
   const isNode = state.nodes.includes(obj);
   if (isNode) {
     const n = obj;
+
+    const isGround = state.groundNode === n;
+
     content.innerHTML = `
-      <div class="properties-field">
-        <label>Voltage</label>
-        <div style="font-weight:bold;font-family:monospace;" id="propVoltText">
-          ${n.vx?.toFixed(2) ?? '-'} V
-        </div>
+    <div class="properties-field">
+      <label>Node Type</label>
+      <div style="
+        font-weight:bold;
+        color:${isGround ? '#4af' : '#fff'};
+      ">
+        ${isGround ? 'Ground Node (0V reference)' : 'Normal Node'}
       </div>
-      <div class="properties-field">
-        <label>X Position</label>
-        <input type="number" id="propX" value="${n.x}" step="10" />
+    </div>
+
+    <div class="properties-field">
+      <label>Voltage</label>
+      <div style="font-weight:bold;font-family:monospace;" id="propVoltText">
+        ${n.vx?.toFixed(2) ?? '-'} V
       </div>
-      <div class="properties-field">
-        <label>Y Position</label>
-        <input type="number" id="propY" value="${n.y}" step="10" />
-      </div>
-      <button class="delete-btn" id="propDelete">Delete Node</button>
-    `;
+    </div>
+
+    <div class="properties-field">
+      <label>X Position</label>
+      <input type="number" id="propX" value="${n.x}" step="10" />
+    </div>
+
+    <div class="properties-field">
+      <label>Y Position</label>
+      <input type="number" id="propY" value="${n.y}" step="10" />
+    </div>
+
+    <div class="properties-field">
+      <button class="tool-btn" id="propSetGround">
+        ${isGround ? 'Unset Ground' : 'Set As Ground'}
+      </button>
+    </div>
+
+    <button class="delete-btn" id="propDelete">
+      Delete Node
+    </button>
+  `;
+
     document.getElementById('propX').addEventListener('input', (e) => {
       const v = snapToGrid(parseFloat(e.target.value));
       if (!isNaN(v)) n.x = v;
+      saveCircuitToURL();
     });
+
     document.getElementById('propY').addEventListener('input', (e) => {
       const v = snapToGrid(parseFloat(e.target.value));
       if (!isNaN(v)) n.y = v;
+      saveCircuitToURL();
     });
+
+    document.getElementById('propSetGround').addEventListener('click', () => {
+      if (state.groundNode === n) {
+        state.groundNode = null;
+      } else {
+        state.groundNode = n;
+      }
+
+      updatePropertiesBox();
+      saveCircuitToURL();
+    });
+
     document.getElementById('propDelete').addEventListener('click', () => {
+      if (state.groundNode === n) {
+        state.groundNode = null;
+      }
+
       deleteNode(n);
       clearSelection();
+      saveCircuitToURL();
     });
   } else {
     const c = obj;
@@ -869,6 +1459,10 @@ function updatePropertiesBox() {
     else if (c.type === 'V') valueLabel = 'Voltage (V)';
     else if (c.type === 'W') valueLabel = 'Wire Resistance (Ω)';
     else if (c.type === 'C') valueLabel = 'Capacitance (F)';
+    else if (c.type === 'D') valueLabel = 'Forward Voltage (V)';
+    else if (c.type === 'LED') valueLabel = 'Forward Voltage (V)';
+    else if (c.type === 'S') valueLabel = 'Resistance (Ω)';
+    else if (c.type === 'ACV') valueLabel = 'Amplitude (V)';
 
     const v1 = c.n1.vx?.toFixed(2) ?? '-';
     const v2 = c.n2.vx?.toFixed(2) ?? '-';
@@ -883,10 +1477,16 @@ function updatePropertiesBox() {
       <label>Type</label>
       <div style="font-weight:bold;">${label} (ID: ${c.id})</div>
     </div>
-    <div class="properties-field">
+    ${c.type !== 'SW' ? `<div class="properties-field">
       <label>${valueLabel}</label>
       <input type="number" id="propValue" value="${c.value}" step="any" min="0.0001" />
-    </div>
+    </div>` : ''}
+    ${c.type === 'LED' ? `
+      <div class="properties-field">
+        <label>LED Color</label>
+        <input type="color" id="propLedColor" value="${c.ledColor || '#00ff88'}" />
+      </div>
+    ` : ''}
     ${isVoltage ? `
       <div class="properties-field">
         <label>Polarity</label>
@@ -894,6 +1494,20 @@ function updatePropertiesBox() {
           <span style="font-family:monospace;" id="propPolarityText">${polarityText}</span>
           <button type="button" class="tool-btn" id="propPolarityToggle">Reverse polarity</button>
         </div>
+      </div>
+    ` : ''}
+    ${c.type === 'ACV' ? `
+      <div class="properties-field">
+        <label>Frequency (Hz)</label>
+        <input type="number" id="propFrequency" value="${c.frequency || 50}" step="any" min="0.001" />
+      </div>
+      <div class="properties-field">
+        <label>Phase Offset (°)</label>
+        <input type="number" id="propPhase" value="${((c.phase || 0) * 180 / Math.PI).toFixed(1)}" step="any" />
+      </div>
+      <div class="properties-field">
+        <label>Instantaneous V</label>
+        <div style="font-family:monospace;" id="propInstV">—</div>
       </div>
     ` : ''}
     <div class="properties-field">
@@ -911,10 +1525,24 @@ function updatePropertiesBox() {
     </div>
     <button class="delete-btn" id="propDelete">Delete Component</button>
   `;
-    document.getElementById('propValue').addEventListener('input', (e) => {
+    document.getElementById('propValue')?.addEventListener('input', (e) => {
       const v = parseFloat(e.target.value);
       if (!isNaN(v) && v > 0) c.value = v;
+      saveCircuitToURL();
     });
+
+    if (c.type === 'ACV') {
+      document.getElementById('propFrequency')?.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.frequency = v;
+        saveCircuitToURL();
+      });
+      document.getElementById('propPhase')?.addEventListener('input', (e) => {
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v)) c.phase = v * Math.PI / 180;
+        saveCircuitToURL();
+      });
+    }
 
     if (isVoltage) {
       const toggleBtn = document.getElementById('propPolarityToggle');
@@ -924,8 +1552,18 @@ function updatePropertiesBox() {
           c.polarity = (c.polarity || 1) * -1;
           const pTxt = c.polarity === 1 ? 'N1 is +, N2 is -' : 'N1 is -, N2 is +';
           polTextEl.textContent = pTxt;
+          saveCircuitToURL();
         });
       }
+    }
+
+    const ledColorEl = document.getElementById('propLedColor');
+
+    if (ledColorEl) {
+      ledColorEl.addEventListener('input', (e) => {
+        c.ledColor = e.target.value;
+        saveCircuitToURL();
+      });
     }
 
     document.getElementById('propDelete').addEventListener('click', () => {
@@ -951,6 +1589,14 @@ function updateSelectedPropertiesDynamics() {
     if (elVolt) elVolt.textContent = `V1: ${v1}V | V2: ${v2}V (ΔV: ${diff}V)`;
     const elCurr = document.getElementById('propCurrText');
     if (elCurr) elCurr.textContent = formatCurrent(c.current || 0);
+    if (c.type === 'ACV') {
+      const elInstV = document.getElementById('propInstV');
+      if (elInstV) {
+        const freq = c.frequency || 50;
+        const inst = (c.value || 0) * Math.sin(2 * Math.PI * freq * simTime + (c.phase || 0));
+        elInstV.textContent = `${inst.toFixed(3)} V`;
+      }
+    }
   }
 }
 
@@ -998,9 +1644,9 @@ function voltageColor(v) {
 }
 
 let prevTime = Date.now();
-const SIM_DT = 0.05; // 50ms simulation step
 
 function draw() {
+  stats.begin();
   const now = Date.now();
   const deltaTime = now - prevTime;
   currentAnimTime += deltaTime;
@@ -1206,8 +1852,8 @@ function draw() {
       ctx.moveTo(obj.n2.x, obj.n2.y);
       ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
       ctx.stroke();
-    } else if (obj.type === 'V') {
-      // Circle outline around voltage source center
+    } else if (obj.type === 'V' || obj.type === 'ACV') {
+      // Circle outline around voltage source / AC source center
       const mx = (obj.n1.x + obj.n2.x) / 2;
       const my = (obj.n1.y + obj.n2.y) / 2;
       // Outer glow ring
@@ -1273,6 +1919,22 @@ function draw() {
       ctx.lineTo(mx - ux * rectLength / 2, my - uy * rectLength / 2);
       ctx.moveTo(obj.n2.x, obj.n2.y);
       ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
+      ctx.stroke();
+    } else if (obj.type === 'GND') {
+      const x = obj.n1.x;
+      const y = obj.n1.y + 12;
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = `rgba(0,229,255,${0.35 * selPulse})`;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.arc(x, y, 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = `rgba(0,229,255,${selPulse})`;
+      ctx.shadowColor = "#00e5ff";
+      ctx.shadowBlur = selBlur;
+      ctx.beginPath();
+      ctx.arc(x, y, 18, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
@@ -1348,7 +2010,7 @@ function draw() {
         ctx.moveTo(c.n2.x, c.n2.y);
         ctx.lineTo(mx + ux * rl / 2, my + uy * rl / 2);
         ctx.stroke();
-      } else if (c.type === 'V') {
+      } else if (c.type === 'V' || c.type === 'ACV' || c.type === 'LED' || c.type === 'D' || c.type === 'SW') {
         const mx = (c.n1.x + c.n2.x) / 2;
         const my = (c.n1.y + c.n2.y) / 2;
         ctx.lineWidth = 3;
@@ -1419,6 +2081,14 @@ function draw() {
         } else if (c.type === 'C') {
           settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} F</span></div>`;
           resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Capacitor</span></div>`;
+        } else if (c.type === 'D') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} V</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Diode</span></div>`;
+        } else if (c.type === 'LED') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} V</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">LED</span></div>`;
+        } else if (c.type === 'S') {
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Switch</span></div>`;
         }
 
         const v1 = c.n1.vx != null ? `${c.n1.vx.toFixed(2)} V` : '-';
@@ -1476,6 +2146,7 @@ function draw() {
   }
   info.textContent = infoText;
 
+  stats.end();
   ctx.restore();
   requestAnimationFrame(draw);
 }
@@ -1512,6 +2183,11 @@ canvas.addEventListener('mousedown', (e) => {
     }
     const c = findComponentAt(gx, gy);
     if (c) {
+      if (c.type === 'SW') {
+        c.closed = !c.closed;
+        saveCircuitToURL();
+      }
+
       state.selectedObject = c;
       updatePropertiesBox();
       return;
@@ -1525,10 +2201,21 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
 
+  if (state.mode === "CREATE_GROUND") {
+    const node = findNodeAt(gx, gy);
+    if (!node) return;
+    addComponent("GND", node, node, 0);
+    return;
+  }
+
   if (state.mode === 'CREATE_RESISTOR' ||
     state.mode === 'CREATE_VOLTAGE' ||
+    state.mode === 'CREATE_ACV' ||
     state.mode === 'CREATE_WIRE' ||
-    state.mode === 'CREATE_CAPACITOR') {
+    state.mode === 'CREATE_CAPACITOR' ||
+    state.mode === 'CREATE_DIODE' ||
+    state.mode === 'CREATE_LED' ||
+    state.mode === 'CREATE_SWITCH') {
 
     const n = findNodeAt(gx, gy);
     if (!n) return;
@@ -1536,17 +2223,27 @@ canvas.addEventListener('mousedown', (e) => {
     const toolMap = {
       CREATE_RESISTOR: 'R',
       CREATE_VOLTAGE: 'V',
+      CREATE_ACV: 'ACV',
       CREATE_WIRE: 'W',
-      CREATE_CAPACITOR: 'C'
+      CREATE_CAPACITOR: 'C',
+      CREATE_DIODE: 'D',
+      CREATE_LED: 'LED',
+      CREATE_SWITCH: 'SW',
+      CREATE_GROUND: "GND"
     };
     const toolType = toolMap[state.mode];
     const value = getCurrentToolValue(toolType);
 
     if (!state.placing || !state.placing.n1) {
-      state.placing = { type: toolType, value, n1: n, n2: null };
+      const extra = {};
+      if (toolType === 'ACV') {
+        const freqEl = document.getElementById('acvFrequency');
+        extra.frequency = freqEl ? (parseFloat(freqEl.value) || 50) : 50;
+      }
+      state.placing = { type: toolType, value, n1: n, n2: null, extra };
     } else {
       state.placing.n2 = n;
-      addComponent(state.placing.type, state.placing.n1, state.placing.n2, state.placing.value);
+      addComponent(state.placing.type, state.placing.n1, state.placing.n2, state.placing.value, state.placing.extra);
       state.placing = null;
     }
     return;
@@ -1613,6 +2310,9 @@ canvas.addEventListener('wheel', (e) => {
 });
 
 canvas.addEventListener('mouseup', () => {
+  if (state.draggingNode) {
+    saveCircuitToURL();
+  }
   state.draggingNode = null;
 });
 
@@ -1631,6 +2331,9 @@ function hideAllToolInputs() {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   }
+  // hide ACV extra field (not in COMPONENT_TYPES.inputId)
+  const freqEl = document.getElementById('acvFrequency');
+  if (freqEl) freqEl.style.display = 'none';
 }
 function resetToolButtons() {
   document.querySelectorAll('.tool-btn').forEach(b => {
@@ -1684,15 +2387,25 @@ function setMode(mode) {
   const idMap = {
     CREATE_RESISTOR: 'addResistor',
     CREATE_VOLTAGE: 'addVoltage',
+    CREATE_ACV: 'addACV',
     CREATE_WIRE: 'addWire',
     CREATE_NODE: 'addNodeBtn',
-    CREATE_CAPACITOR: 'addCapacitor'
+    CREATE_CAPACITOR: 'addCapacitor',
+    CREATE_DIODE: 'addDiode',
+    CREATE_LED: 'addLED',
+    CREATE_SWITCH: 'addSwitch',
+    CREATE_GROUND: "addGround"
   };
   const toolMap = {
     CREATE_RESISTOR: 'R',
     CREATE_VOLTAGE: 'V',
+    CREATE_ACV: 'ACV',
     CREATE_WIRE: 'W',
-    CREATE_CAPACITOR: 'C'
+    CREATE_CAPACITOR: 'C',
+    CREATE_DIODE: 'D',
+    CREATE_LED: 'LED',
+    CREATE_SWITCH: 'SW',
+    CREATE_GROUND: "GND"
   };
 
   state.activeTool = toolMap[mode] || null;
@@ -1708,6 +2421,10 @@ function setMode(mode) {
     if (def && def.inputId) {
       const el = document.getElementById(def.inputId);
       if (el) el.style.display = 'inline-block';
+    }
+    if (state.activeTool === 'ACV') {
+      const freqEl = document.getElementById('acvFrequency');
+      if (freqEl) freqEl.style.display = 'inline-block';
     }
   }
 }
@@ -1779,11 +2496,25 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 // Tool setup
 setupToolButton('addResistor', 'CREATE_RESISTOR');
 setupToolButton('addVoltage', 'CREATE_VOLTAGE');
+setupToolButton('addACV', 'CREATE_ACV');
 setupToolButton('addWire', 'CREATE_WIRE');
 setupToolButton('addCapacitor', 'CREATE_CAPACITOR');
+setupToolButton('addDiode', 'CREATE_DIODE');
+setupToolButton('addLED', 'CREATE_LED');
+setupToolButton('addSwitch', 'CREATE_SWITCH');
+setupToolButton('addGround', 'CREATE_GROUND');
 
 // Simulation loop
-setInterval(solveCircuit, 50);
+function simLoop() {
+  for (let i = 0; i < SUBSTEPS; i++) {
+    simTime += SIM_DT;
+    solveCircuit();
+  }
+
+  requestAnimationFrame(simLoop);
+}
 
 // Start
+loadCircuitFromURL();
+simLoop();
 draw();

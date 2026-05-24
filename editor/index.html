@@ -13,6 +13,8 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://mrdoob.github.io/stats.js/build/stats.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 </head>
 
 <body>
@@ -50,6 +52,26 @@
                     <label for="capacitorValue">Capacitance (F)</label>
                     <input id="capacitorValue" type="number" value="1e-6" step="any" min="1e-12" />
                 </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addDiode" class="tool-btn" title="Place Diode">Diode</button>
+                <div class="tool-dropdown">
+                    <label for="diodeValue">Forward Voltage (V)</label>
+                    <input id="diodeValue" type="number" value="0.7" step="any" min="0.001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addLED" class="tool-btn" title="Place LED">LED</button>
+                <div class="tool-dropdown">
+                    <label for="ledValue">Forward Voltage (V)</label>
+                    <input id="ledValue" type="number" value="1.7" step="any" min="0.001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addGround" class="tool-btn" title="Place Ground">Ground</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addSwitch" class="tool-btn" title="Place Switch">Switch</button>
             </div>
         </nav>
 
