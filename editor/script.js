@@ -567,7 +567,34 @@ const COMPONENT_TYPES = {
     draw(ctx2d, comp) {
       const mx = (comp.n1.x + comp.n2.x) / 2;
       const my = (comp.n1.y + comp.n2.y) / 2;
-      ctx2d.fillStyle = '#aaa';
+
+      /* const v1 = comp.n1.vx || 0;
+      const v2 = comp.n2.vx || 0;
+
+      const avgV = (v1 + v2) * 0.5;
+
+      let wireColor = "#cfd8dc";
+      const maxVisualVoltage = 12;
+      const t = Math.max(-1, Math.min(1, avgV / maxVisualVoltage));
+
+      if (t > 0) {
+        // positive voltage = blue
+        const strength = Math.floor(t * 180);
+
+        wireColor = `rgb(${180 + strength}, ${60}, ${60})`;
+      } else if (t < 0) {
+        // negative voltage = red
+        const strength = Math.floor(-t * 180);
+
+        wireColor = `rgb(${40}, ${40}, ${220 + strength})`;
+      }
+      ctx2d.fillStyle = wireColor;
+
+      const currentGlow = Math.min(Math.abs(comp.current) * 0.2, 1);
+      ctx2d.shadowBlur = 10 * currentGlow;
+      ctx2d.shadowColor = wireColor; */
+
+      ctx2d.fillStyle = "#cfd8dc";
       ctx2d.beginPath();
       ctx2d.arc(mx, my, 3, 0, Math.PI * 2);
       ctx2d.fill();
@@ -1229,7 +1256,7 @@ function drawCurrentFlow(ctx2d, comp) {
     dashLength = 8;
     gapLength = 5;
     lineWidth = 2.5;
-    color = '0, 229, 255';
+    color = '255,255,255';
     alpha = 0.9;
   } else if (comp.type === 'R') {
     dashLength = 6;
@@ -1263,11 +1290,15 @@ function drawCurrentFlow(ctx2d, comp) {
     alpha = 0.7;
   }
 
+  // color = '255, 255, 255';
+
   const t = currentAnimTime * 0.001;
   const offset = (t * speed * direction) % (dashLength + gapLength);
 
   ctx2d.save();
-  ctx2d.strokeStyle = `rgba(${color}, ${alpha})`;
+  ctx2d.shadowColor = `rgba(${color}, ${alpha * 2})`;
+  ctx2d.shadowBlur = 20;
+  ctx2d.strokeStyle = `rgba(${'255, 255, 255'}, ${alpha})`;
   ctx2d.lineWidth = lineWidth / state.scale;
   ctx2d.setLineDash([dashLength, gapLength]);
   ctx2d.lineDashOffset = -offset;
@@ -1821,6 +1852,11 @@ function updatePropertiesBox() {
     const diff = (c.n1.vx - c.n2.vx)?.toFixed(2) ?? '-';
 
     const isVoltage = c.type === 'V';
+    const canFlip =
+      c.type === 'D' ||
+      c.type === 'LED' ||
+      c.type === 'V' ||
+      c.type === 'ACV';
     const polarity = c.polarity || 1;
     const polarityText = polarity === 1 ? 'N1 is +,<br>N2 is -' : 'N1 is -,<br>N2 is +';
 
@@ -1869,6 +1905,12 @@ function updatePropertiesBox() {
         (ΔV: ${diff}V)
       </div>
     </div>
+    ${canFlip ? `
+    <div class="properties-field">
+      <label>Direction</label>
+      <button type="button" class="tool-btn" id="propFlipBtn">Flip Component</button>
+    </div>
+` : ''}
     <div class="properties-field">
       <label>Measured Current</label>
       <div style="font-weight:bold;font-family:monospace;" id="propCurrText">
@@ -1909,6 +1951,26 @@ function updatePropertiesBox() {
           const pTxt = c.polarity === 1 ? 'N1 is +, N2 is -' : 'N1 is -, N2 is +';
           polTextEl.textContent = pTxt;
           saveCircuitToURL();
+        });
+      }
+    }
+
+    if (canFlip) {
+      const flipBtn = document.getElementById('propFlipBtn');
+      if (flipBtn) {
+        flipBtn.addEventListener('click', () => {
+          // swap nodes
+          const temp = c.n1;
+          c.n1 = c.n2;
+          c.n2 = temp;
+
+          // keep voltage polarity synced too
+          if (c.type === 'V') {
+            c.polarity = (c.polarity || 1) * -1;
+          }
+
+          saveCircuitToURL();
+          updatePropertiesBox();
         });
       }
     }
@@ -1999,6 +2061,40 @@ function voltageColor(v) {
   }
   // positive → red
   return 'rgb(255, 0, 0)';
+}
+
+function wireVoltageColor(v) {
+  const maxV = 50;
+  const t = Math.max(-1, Math.min(1, v / maxV));
+
+  let r = 180;
+  let g = 180;
+  let b = 180;
+
+  let colorP = [5, 0, 0];
+  let colorN = [0, 0, 5];
+
+  if (t > 0) {
+    r += 75 * t * colorP[0];
+    g += 75 * t * colorP[1];
+    b += 75 * t * colorP[2];
+
+  } else {
+    r += 75 * (-t) * colorN[0];
+    g += 75 * (-t) * colorN[1];
+    b += 75 * (-t) * colorN[2];
+  }
+  let normCol = normalize(r, g, b);
+  r = normCol[0] * 255;
+  g = normCol[1] * 255;
+  b = normCol[2] * 255;
+
+  return [r, g, b];
+}
+
+function normalize(r, g, b) {
+  const max = Math.hypot(r, g, b);
+  return [r / max, g / max, b / max];
 }
 
 let prevTime = Date.now();
@@ -2094,7 +2190,38 @@ function draw() {
 
   // Component lines
   for (const c of state.components) {
-    ctx.strokeStyle = c.hasError ? '#e74c3c' : '#888';
+    let wireColor = "#888";
+
+    const grad = ctx.createLinearGradient(
+      c.n1.x,
+      c.n1.y,
+      c.n2.x,
+      c.n2.y
+    );
+
+    let col1 = wireVoltageColor(c.n1.vx);
+    let col2 = wireVoltageColor(c.n2.vx);
+    let avgCol = [
+      (col1[0] + col2[0]) / 2,
+      (col1[1] + col2[1]) / 2,
+      (col1[2] + col2[2]) / 2
+    ];
+
+    grad.addColorStop(0, `rgb(${col1[0]}, ${col1[1]}, ${col1[2]})`);
+    grad.addColorStop(1, `rgb(${col2[0]}, ${col2[1]}, ${col2[2]})`);
+
+    const currentGlow = Math.min(Math.abs(c.current) * 0.2, 1);
+
+    ctx.shadowBlur = 5;
+    // ctx.shadowColor = `rgb(${avgCol[0]}, ${avgCol[1]}, ${avgCol[2]})`;
+    const avgV =
+      ((c.n1.vx || 0) +
+        (c.n2.vx || 0)) * 0.5;
+
+    let avgVCol = wireVoltageColor(avgV);
+    ctx.shadowColor = `rgba(${avgVCol[0]}, ${avgVCol[1]}, ${avgVCol[2]}, ${currentGlow * 10})`;
+
+    ctx.strokeStyle = c.hasError ? '#e74c3c' : grad;
     ctx.lineWidth = c.hasError ? 3 : 2;
     ctx.beginPath();
     ctx.moveTo(c.n1.x, c.n1.y);

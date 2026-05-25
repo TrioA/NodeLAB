@@ -344,16 +344,21 @@ canvas {
 .tooltip-box {
   position: absolute;
   pointer-events: none;
-  background: rgba(22, 27, 34, 0.92);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 229, 255, 0.3);
+
+  /* more transparent + glassy */
+  background: rgba(22, 27, 34, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
+
   padding: 10px 14px;
   font-size: 12px;
-  box-shadow: var(--shadow-lg), 0 0 20px rgba(0, 229, 255, 0.1);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
   z-index: 1000;
   color: var(--text-primary);
+
   display: flex;
   flex-direction: column;
   gap: 4px;
