@@ -3485,7 +3485,9 @@ if (window.location.href.split("?").length >= 1) {
       initialFade.style.opacity = "0";
       setTimeout(() => {
         initialFade.remove();
-      }, 5000);
+        // remove ?from=home from url
+        // window.history.replaceState({}, '', '/editor');
+      }, 2000);
     }, 500);
   } else {
     initialFade.remove();
