@@ -26,6 +26,10 @@
     padding: 0;
 }
 
+html {
+    scroll-behavior: smooth;
+}
+
 body {
     background: radial-gradient(circle at top, #111827 0%, var(--bg-primary) 60%);
 
