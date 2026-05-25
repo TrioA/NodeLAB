@@ -1,1 +1,10 @@
-<script>window.location.href = "home"</script>
+<script>
+    /* if (window.location.href.endsWith('/')) {
+        window.location.href += "home";
+    } else {
+        window.location.href += "/home";
+    } */
+    // console.log(window.location.href.endsWith('/') ? "home" : "/home");
+
+    window.location.href += window.location.href.endsWith('/') ? "home" : "/home";
+</script>
