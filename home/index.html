@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>NodeLab</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/home/index.css">
+</head>
+
+<body>
+
+    <div class="bg-grid"></div>
+    <div class="bg-glow glow-1"></div>
+    <div class="bg-glow glow-2"></div>
+
+    <header class="topbar">
+        <div class="brand">NODELAB</div>
+
+        <nav class="nav">
+            <a href="#about">About</a>
+            <a class="launch-btn nav-btn">Open Editor</a>
+        </nav>
+    </header>
+
+    <main class="hero">
+
+        <div class="hero-badge">
+            Browser-Based Circuit Simulation
+        </div>
+
+        <h1>
+            Build and simulate
+            <span>electronic circuits</span>
+            in real time.
+        </h1>
+
+        <p class="hero-text">
+            NodeLab is a modern interactive circuit editor designed for rapid prototyping,
+            experimentation, and visualization. Create circuits node-by-node with live
+            voltage simulation, animated current flow, glowing wires, and responsive tools.
+        </p>
+
+        <div class="hero-actions">
+            <a class="primary-btn launch-btn">
+                Launch Editor
+            </a>
+
+            <a href="#about" class="secondary-btn">
+                Learn More
+            </a>
+        </div>
+
+        <div class="hero-preview">
+            <img src="/images/demo-pic.png" alt="NodeLab Preview">
+        </div>
+
+    </main>
+
+    <section class="about" id="about">
+
+        <div class="section-title">
+            Why NodeLab?
+        </div>
+
+        <div class="feature-grid">
+
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+
+                <h3>Real-Time Simulation</h3>
+
+                <p>
+                    Watch voltages and current update instantly as you build and edit circuits.
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🧠</div>
+
+                <h3>Interactive Editor</h3>
+
+                <p>
+                    Create nodes, components, wires, and AC sources directly on the canvas.
+                </p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🌌</div>
+
+                <h3>Modern Visuals</h3>
+
+                <p>
+                    Glassmorphism UI, glowing wires, animated LEDs, and scalable rendering.
+                </p>
+            </div>
+
+        </div>
+
+    </section>
+
+</body>
+<script>
+    document.querySelectorAll(".launch-btn").forEach(e => e.addEventListener("click", () => {
+        document.body.style.transform = 'translateX(-100%)';
+        // document.getElementsByTagName("html")[0].style.transform = 'translateX(-100%)';
+        setTimeout(() => {
+            window.location.href = "../editor/?from=home";
+        }, 400);
+    }));
+</script>
+
+</html>

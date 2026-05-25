@@ -18,17 +18,35 @@
 </head>
 
 <body>
+    <div id="initial-fade">
+        <span id="big-title">NODE LAB<br>EDITOR</span>
+    </div>
+    <a href="/home">
+        <div class="top-branding">
+            NodeLab
+        </div>
+    </a>
     <header class="toolbar" id="toolbar">
         <div class="menu-wrapper">
             <button id="hamburgerBtn" class="hamburger-btn">☰</button>
 
             <div class="save-menu" id="saveMenu">
-                <div class="save-menu-header">Saves</div>
+                <div class="save-menu-header">File</div>
 
                 <button id="newCircuitBtn" class="save-item">+ New Circuit</button>
                 <button id="saveCircuitBtn" class="save-item">+ Save Current Circuit</button>
 
-                <div id="saveList"></div>
+                <div class="save-submenu-wrapper">
+
+                    <button id="savedCircuitsBtn" class="save-item">
+                        Saved Circuits ▸
+                    </button>
+
+                    <div class="save-submenu" id="saveList">
+                        <!-- save entries injected here -->
+                    </div>
+
+                </div>
             </div>
         </div>
 
@@ -45,6 +63,10 @@
             <div class="tool-wrapper">
                 <button id="addWire" class="tool-btn" title="Place Wire">Wire</button>
             </div>
+            <div class="tool-wrapper">
+                <button id="addGround" class="tool-btn" title="Place Ground">Ground</button>
+            </div>
+            <div class="toolbar-divider"></div>
             <div class="tool-wrapper">
                 <button id="addVoltage" class="tool-btn" title="Place Voltage Source">Voltage</button>
                 <div class="tool-dropdown">
@@ -89,20 +111,15 @@
                 </div>
             </div>
             <div class="tool-wrapper">
-                <button id="addGround" class="tool-btn" title="Place Ground">Ground</button>
-            </div>
-            <div class="tool-wrapper">
                 <button id="addSwitch" class="tool-btn" title="Place Switch">Switch</button>
             </div>
         </nav>
-
-        <!--div class="toolbar-divider"></div>
-        <div class="toolbar-group">
+        <!--div class="toolbar-group">
             <button id="deleteModeBtn" class="tool-btn tool-btn-danger" title="Delete Mode">Delete</button>
             <button id="clearBtn" class="tool-btn" title="Clear All">Clear</button>
         </div>-->
-        <div class="toolbar-spacer"></div>
-        <div class="toolbar-hint">Click two nodes to place · RMB drag to pan</div>
+        <!--div class="toolbar-spacer"></div>
+        <div class="toolbar-hint">Click two nodes to place · RMB drag to pan</div-->
     </header>
 
     <main class="canvas-container" id="canvasContainer">

@@ -37,13 +37,22 @@ const state = {
 
   placing: null,      // {type,value,n1,n2}
   draggingNode: null,
+  draggingGroup: false,
+  dragGroupOffsets: [],
+  dragSelectStartX: 0,
+  dragSelectStartY: 0,
   activeTool: null,   // 'R'|'V'|'W' or null
   mode: 'SELECT',   // SELECT | CREATE_NODE | CREATE_RESISTOR | CREATE_VOLTAGE | CREATE_WIRE | DELETE
   selectedObject: null,
   time: 0,
 
+  multiSelected: [],
+  selectionBox: null,
+  dragSelecting: false,
+
   mouse: { x: 0, y: 0, rawX: 0, rawY: 0 },
   ctrlPressed: false,
+  shiftPressed: false,
   panX: 0,
   panY: 0,
   panning: false,
@@ -373,7 +382,7 @@ const COMPONENT_TYPES = {
 
       if (comp.isOn) {
         ctx2d.shadowColor = comp.ledColor || '#00ff88';
-        ctx2d.shadowBlur = glow;
+        ctx2d.shadowBlur = glow * Math.pow(state.scale, 1.0);
       }
 
       // white outline
@@ -676,6 +685,22 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
     state.ctrlPressed = true;
   }
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+    state.shiftPressed = true;
+  }
+
+  if (state.ctrlPressed && e.key === 's') {
+    e.preventDefault();
+    saveCircuitToLocalStorage();
+    saveMenu.classList.add('open');
+    saveList.classList.add('open');
+  }
+
+  if (state.ctrlPressed && e.key === 'o') {
+    e.preventDefault();
+    saveMenu.classList.add('open');
+    saveList.classList.add('open');
+  }
 
   // ignore if typing in an input
   const activeTag = document.activeElement && document.activeElement.tagName;
@@ -692,15 +717,43 @@ window.addEventListener('keydown', (e) => {
       setMode('CREATE_WIRE');
       break;
     case 'Digit4': // 4 = Voltage
-      setMode('CREATE_VOLTAGE');
+      setMode('CREATE_GROUND');
       break;
     case 'Digit5': // 5 = Wire (if you want)
-      setMode('CREATE_RESISTOR');
+      setMode('CREATE_VOLTAGE');
       break;
     case 'Digit6':
+      setMode('CREATE_RESISTOR');
+      break;
+    case 'Digit7':
       setMode('CREATE_CAPACITOR');
       break;
+    case 'Digit8':
+      setMode('CREATE_DIODE');
+      break;
+    case 'Digit9':
+      setMode('CREATE_LED');
+      break;
+    case 'Digit0':
+      setMode('CREATE_ACV');
+      break;
     case 'Delete': {
+      // Multi-selection delete
+      if (state.multiSelected.length > 1) {
+        pushUndoState();
+        const nodesToDelete = state.multiSelected.filter(o => state.nodes.includes(o));
+        const compsToDelete = state.multiSelected.filter(o => state.components.includes(o));
+        // Also delete components connected to deleted nodes
+        const orphanedComps = state.components.filter(c =>
+          nodesToDelete.includes(c.n1) || nodesToDelete.includes(c.n2)
+        );
+        const allCompsToDelete = new Set([...compsToDelete, ...orphanedComps]);
+        state.components = state.components.filter(c => !allCompsToDelete.has(c));
+        state.nodes = state.nodes.filter(n => !nodesToDelete.includes(n));
+        clearSelection();
+        saveCircuitToURL();
+        break;
+      }
       const obj = state.selectedObject;
       if (obj) {
         // if a node is selected
@@ -734,27 +787,38 @@ window.addEventListener('keydown', (e) => {
   const isNode = obj && state.nodes.includes(obj);
   const step = GRID_SIZE; // or 10, or whatever you like
 
-  switch (e.code) {
-    // existing Digit1–5 + Delete cases...
+  // Collect nodes to move: multi-selection takes priority
+  const nodesToMove = state.multiSelected.length > 1
+    ? state.multiSelected.filter(o => state.nodes.includes(o))
+    : (isNode ? [obj] : []);
 
+  switch (e.code) {
     case 'ArrowLeft':
-      if (isNode) {
-        obj.x = snapToGrid(obj.x - step);
+      if (nodesToMove.length) {
+        e.preventDefault();
+        for (const n of nodesToMove) n.x = snapToGrid(n.x - step);
+        saveCircuitToURL();
       }
       break;
     case 'ArrowRight':
-      if (isNode) {
-        obj.x = snapToGrid(obj.x + step);
+      if (nodesToMove.length) {
+        e.preventDefault();
+        for (const n of nodesToMove) n.x = snapToGrid(n.x + step);
+        saveCircuitToURL();
       }
       break;
     case 'ArrowUp':
-      if (isNode) {
-        obj.y = snapToGrid(obj.y - step);
+      if (nodesToMove.length) {
+        e.preventDefault();
+        for (const n of nodesToMove) n.y = snapToGrid(n.y - step);
+        saveCircuitToURL();
       }
       break;
     case 'ArrowDown':
-      if (isNode) {
-        obj.y = snapToGrid(obj.y + step);
+      if (nodesToMove.length) {
+        e.preventDefault();
+        for (const n of nodesToMove) n.y = snapToGrid(n.y + step);
+        saveCircuitToURL();
       }
       break;
   }
@@ -778,6 +842,9 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
     state.ctrlPressed = false;
+  }
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+    state.shiftPressed = false;
   }
 });
 
@@ -1180,8 +1247,7 @@ function loadCircuitSave(save) {
 }
 
 function refreshSaveMenu() {
-  const saveList =
-    document.getElementById('saveList');
+  const saveList = document.getElementById('saveList');
 
   if (!saveList) return;
 
@@ -1297,7 +1363,7 @@ function drawCurrentFlow(ctx2d, comp) {
 
   ctx2d.save();
   ctx2d.shadowColor = `rgba(${color}, ${alpha * 2})`;
-  ctx2d.shadowBlur = 20;
+  ctx2d.shadowBlur = 20 * Math.pow(state.scale, 1);
   ctx2d.strokeStyle = `rgba(${'255, 255, 255'}, ${alpha})`;
   ctx2d.lineWidth = lineWidth / state.scale;
   ctx2d.setLineDash([dashLength, gapLength]);
@@ -1736,6 +1802,32 @@ let selectedObject = null;
 
 function clearSelection() {
   state.selectedObject = null;
+  state.multiSelected = [];
+  updatePropertiesBox();
+}
+
+// Merge selectedObject into multiSelected, then add/toggle item — deduped
+function addToMultiSelection(item) {
+  // If there's a single-selected object, absorb it into multiSelected first
+  if (state.selectedObject && !state.multiSelected.includes(state.selectedObject)) {
+    state.multiSelected.push(state.selectedObject);
+  }
+  state.selectedObject = null;
+
+  const idx = state.multiSelected.indexOf(item);
+  if (idx === -1) {
+    state.multiSelected.push(item);
+  } else {
+    // Shift-clicking an already-selected item deselects it
+    state.multiSelected.splice(idx, 1);
+  }
+
+  // If we're down to 1 item, promote back to single selection
+  if (state.multiSelected.length === 1) {
+    state.selectedObject = state.multiSelected[0];
+    state.multiSelected = [];
+  }
+
   updatePropertiesBox();
 }
 
@@ -1743,6 +1835,97 @@ function updatePropertiesBox() {
   const box = document.getElementById('propertiesBox');
   const content = document.getElementById('propertiesContent');
   if (!box || !content) return;
+
+  // ── Multi-selection panel ──────────────────────────────────────────────────
+  if (state.multiSelected.length > 1) {
+    box.style.display = 'block';
+
+    const sel = state.multiSelected;
+    const totalCount = sel.length;
+
+    // Count nodes
+    const nodeObjs = sel.filter(o => state.nodes.includes(o));
+    const nodeCount = nodeObjs.length;
+
+    // Count components by type
+    const compObjs = sel.filter(o => state.components.includes(o));
+    const typeCounts = {};
+    for (const c of compObjs) {
+      const label = COMPONENT_TYPES[c.type]?.label ?? c.type;
+      typeCounts[label] = (typeCounts[label] || 0) + 1;
+    }
+    const typeRows = Object.entries(typeCounts)
+      .map(([label, count]) => `
+        <div style="display:flex;justify-content:space-between;padding:2px 0;">
+          <span style="color:var(--text-secondary);font-size:11px;">${label}</span>
+          <span style="color:var(--text-primary);font-weight:600;font-size:11px;font-family:var(--font-mono);">${count}</span>
+        </div>`).join('');
+
+    content.innerHTML = `
+      <div class="properties-field" style="margin-bottom:10px;">
+        <label>Selection</label>
+        <div style="font-weight:700;font-size:18px;font-family:var(--font-mono);color:var(--accent);">${totalCount} objects</div>
+      </div>
+
+      <div class="properties-field" style="margin-bottom:8px;">
+        <label>Breakdown</label>
+        <div style="background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:6px 8px;">
+          <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--border-secondary);margin-bottom:4px;">
+            <span style="color:var(--text-secondary);font-size:11px;">Nodes</span>
+            <span style="color:#3fb950;font-weight:600;font-size:11px;font-family:var(--font-mono);">${nodeCount}</span>
+          </div>
+          ${typeRows || '<div style="color:var(--text-muted);font-size:11px;">No components</div>'}
+        </div>
+      </div>
+
+      <div class="properties-field">
+        <label>Move Selection (ΔX / ΔY)</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="number" id="multiMoveX" value="0" step="10" style="width:72px;" placeholder="ΔX" />
+          <input type="number" id="multiMoveY" value="0" step="10" style="width:72px;" placeholder="ΔY" />
+          <button class="tool-btn" id="multiMoveApply" style="flex:1;padding:7px 8px;">Apply</button>
+        </div>
+      </div>
+
+      <button class="delete-btn" id="multiDeleteBtn" style="margin-top:4px;">
+        Delete All (${totalCount})
+      </button>
+    `;
+
+    document.getElementById('multiMoveApply').addEventListener('click', () => {
+      const dx = snapToGrid(parseFloat(document.getElementById('multiMoveX').value) || 0);
+      const dy = snapToGrid(parseFloat(document.getElementById('multiMoveY').value) || 0);
+      if (dx === 0 && dy === 0) return;
+      pushUndoState();
+      for (const o of nodeObjs) {
+        o.x = snapToGrid(o.x + dx);
+        o.y = snapToGrid(o.y + dy);
+      }
+      saveCircuitToURL();
+      // Reset inputs
+      document.getElementById('multiMoveX').value = 0;
+      document.getElementById('multiMoveY').value = 0;
+    });
+
+    document.getElementById('multiDeleteBtn').addEventListener('click', () => {
+      const ok = confirm(`Delete all ${totalCount} selected objects? This cannot be undone easily.`);
+      if (!ok) return;
+      pushUndoState();
+      const nodesToDelete = new Set(nodeObjs);
+      const compsToDelete = new Set(compObjs);
+      // Orphan sweep: any component whose node is deleted
+      for (const c of state.components) {
+        if (nodesToDelete.has(c.n1) || nodesToDelete.has(c.n2)) compsToDelete.add(c);
+      }
+      state.components = state.components.filter(c => !compsToDelete.has(c));
+      state.nodes = state.nodes.filter(n => !nodesToDelete.has(n));
+      clearSelection();
+      saveCircuitToURL();
+    });
+
+    return;
+  }
+  // ── End multi-selection panel ──────────────────────────────────────────────
 
   const obj = state.selectedObject;
   if (!obj) {
@@ -1965,9 +2148,9 @@ function updatePropertiesBox() {
           c.n2 = temp;
 
           // keep voltage polarity synced too
-          if (c.type === 'V') {
+          /* if (c.type === 'V') {
             c.polarity = (c.polarity || 1) * -1;
-          }
+          } */
 
           saveCircuitToURL();
           updatePropertiesBox();
@@ -2092,193 +2275,33 @@ function wireVoltageColor(v) {
   return [r, g, b];
 }
 
-function normalize(r, g, b) {
-  const max = Math.hypot(r, g, b);
-  return [r / max, g / max, b / max];
-}
+function drawSelectionOutline(obj) {
+  const selPulse =
+    0.78 + 0.18 * Math.sin(currentAnimTime * 0.003);
 
-let prevTime = Date.now();
-
-function draw() {
-  stats.begin();
-  const now = Date.now();
-  const deltaTime = now - prevTime;
-  currentAnimTime += deltaTime;
-  prevTime = now;
-
-  ctx.clearRect(0, 0, width, height);
-  ctx.save();
-  ctx.translate(state.panX, state.panY);
-  ctx.scale(state.scale, state.scale);
-
-  // Hover / group highlight
-  let hoveredComp = null;
-  let hoveredNode = null;
-  let hoveredGroup = null;
-
-  if (state.ctrlPressed) {
-    for (const c of state.components) {
-      if (distToSegment({ x: state.mouse.x, y: state.mouse.y }, c.n1, c.n2) < 10) {
-        hoveredComp = c;
-        break;
-      }
-    }
-    if (!hoveredComp) hoveredNode = findNodeAt(state.mouse.x, state.mouse.y);
-    if (hoveredComp || hoveredNode) {
-      const groups = getCircuitGroups();
-      for (const g of groups) {
-        if (hoveredComp && g.components.includes(hoveredComp)) {
-          hoveredGroup = g; break;
-        }
-        if (hoveredNode && g.nodes.includes(hoveredNode)) {
-          hoveredGroup = g; break;
-        }
-      }
-    }
-  }
-
-  // Grid
-  // Grid
-  ctx.strokeStyle = '#222';
-  ctx.lineWidth = 1 / state.scale; // keep grid lines thin when zoomed
-
-  ctx.beginPath();
-
-  // visible world bounds
-  const worldLeft = -state.panX / state.scale;
-  const worldTop = -state.panY / state.scale;
-  const worldRight = (width - state.panX) / state.scale;
-  const worldBottom = (height - state.panY) / state.scale;
-
-  // align grid lines to GRID_SIZE
-  const startX = Math.floor(worldLeft / GRID_SIZE) * GRID_SIZE;
-  const endX = Math.ceil(worldRight / GRID_SIZE) * GRID_SIZE;
-  const startY = Math.floor(worldTop / GRID_SIZE) * GRID_SIZE;
-  const endY = Math.ceil(worldBottom / GRID_SIZE) * GRID_SIZE;
-
-  for (let x = startX; x <= endX; x += GRID_SIZE) {
-    ctx.moveTo(x, startY);
-    ctx.lineTo(x, endY);
-  }
-  for (let y = startY; y <= endY; y += GRID_SIZE) {
-    ctx.moveTo(startX, y);
-    ctx.lineTo(endX, y);
-  }
-  ctx.stroke();
-
-  // Group highlight
-  if (hoveredGroup) {
-    const hoverPulse = 0.22 + 0.05 * Math.sin(currentAnimTime * 0.003);
-    ctx.save();
-    ctx.strokeStyle = `rgba(52,152,219,${hoverPulse})`;
-    ctx.lineWidth = 14;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    for (const c of hoveredGroup.components) {
-      ctx.moveTo(c.n1.x, c.n1.y);
-      ctx.lineTo(c.n2.x, c.n2.y);
-    }
-    ctx.stroke();
-    ctx.fillStyle = `rgba(52,152,219,${hoverPulse * 0.65})`;
-    for (const n of hoveredGroup.nodes) {
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, 15, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  // Component lines
-  for (const c of state.components) {
-    let wireColor = "#888";
-
-    const grad = ctx.createLinearGradient(
-      c.n1.x,
-      c.n1.y,
-      c.n2.x,
-      c.n2.y
+  const selBlur =
+    8 + 6 * (
+      Math.sin(currentAnimTime * 0.003) * 0.5 + 0.5
     );
 
-    let col1 = wireVoltageColor(c.n1.vx);
-    let col2 = wireVoltageColor(c.n2.vx);
-    let avgCol = [
-      (col1[0] + col2[0]) / 2,
-      (col1[1] + col2[1]) / 2,
-      (col1[2] + col2[2]) / 2
-    ];
+  ctx.save();
 
-    grad.addColorStop(0, `rgb(${col1[0]}, ${col1[1]}, ${col1[2]})`);
-    grad.addColorStop(1, `rgb(${col2[0]}, ${col2[1]}, ${col2[2]})`);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
-    const currentGlow = Math.min(Math.abs(c.current) * 0.2, 1);
+  ctx.strokeStyle =
+    `rgba(0, 229, 255, ${selPulse})`;
 
-    ctx.shadowBlur = 5;
-    // ctx.shadowColor = `rgb(${avgCol[0]}, ${avgCol[1]}, ${avgCol[2]})`;
-    const avgV =
-      ((c.n1.vx || 0) +
-        (c.n2.vx || 0)) * 0.5;
+  ctx.shadowColor = '#00e5ff';
+  ctx.shadowBlur = selBlur;
 
-    let avgVCol = wireVoltageColor(avgV);
-    ctx.shadowColor = `rgba(${avgVCol[0]}, ${avgVCol[1]}, ${avgVCol[2]}, ${currentGlow * 10})`;
+  ctx.lineWidth = 1.5;
 
-    ctx.strokeStyle = c.hasError ? '#e74c3c' : grad;
-    ctx.lineWidth = c.hasError ? 3 : 2;
-    ctx.beginPath();
-    ctx.moveTo(c.n1.x, c.n1.y);
-    ctx.lineTo(c.n2.x, c.n2.y);
-    ctx.stroke();
-  }
+  {
+    const isNode =
+      state.nodes.includes(obj);
 
-  // Current flow animation — drawn on top of base lines when Ctrl is held
-  if (state.ctrlPressed) {
-    for (const c of state.components) {
-      drawCurrentFlow(ctx, c);
-    }
-  }
-
-  // Nodes
-  for (const n of state.nodes) {
-    const color = n.hasError ? '#e74c3c' : (n.vx !== undefined ? voltageColor(n.vx) : '#fff');
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = n.hasError ? '#e74c3c' : '#eee';
-    ctx.font = '12px monospace';
-    ctx.fillText(`V=${n.vx?.toFixed(2) ?? '-'}V`, n.x + 10, n.y - 10);
-  }
-
-  // Component symbols + error halo
-  for (const c of state.components) {
-    const def = COMPONENT_TYPES[c.type];
-    if (def && typeof def.draw === 'function') def.draw(ctx, c);
-    if (c.hasError) {
-      const mx = (c.n1.x + c.n2.x) / 2;
-      const my = (c.n1.y + c.n2.y) / 2;
-      ctx.save();
-      ctx.strokeStyle = '#e74c3c';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
-      ctx.beginPath();
-      ctx.arc(mx, my, 18, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-
-  // Selection halo (pulsing, shape-aware)
-  if (state.selectedObject) {
-    const selPulse = 0.78 + 0.18 * Math.sin(currentAnimTime * 0.003);
-    const selBlur = 8 + 6 * (Math.sin(currentAnimTime * 0.003) * 0.5 + 0.5);
-    ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse})`;
-    ctx.shadowColor = '#00e5ff';
-    ctx.shadowBlur = selBlur;
-    ctx.lineWidth = 1.5;
-    const obj = state.selectedObject;
-    const isNode = state.nodes.includes(obj);
+    // EVERYTHING ELSE YOU ALREADY HAVE
     if (isNode) {
       // Circle outline around node
       ctx.lineWidth = 2.5;
@@ -2422,8 +2445,264 @@ function draw() {
       ctx.arc(x, y, 18, 0, Math.PI * 2);
       ctx.stroke();
     }
+  }
+
+  ctx.restore();
+}
+
+function normalize(r, g, b) {
+  const max = Math.hypot(r, g, b);
+  return [r / max, g / max, b / max];
+}
+
+let prevTime = Date.now();
+
+function draw() {
+  stats.begin();
+  const now = Date.now();
+  const deltaTime = now - prevTime;
+  currentAnimTime += deltaTime;
+  prevTime = now;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.save();
+  ctx.translate(state.panX, state.panY);
+  ctx.scale(state.scale, state.scale);
+
+  // Hover / group highlight
+  let hoveredComp = null;
+  let hoveredNode = null;
+  let hoveredGroup = null;
+
+  if (state.ctrlPressed) {
+    for (const c of state.components) {
+      if (distToSegment({ x: state.mouse.x, y: state.mouse.y }, c.n1, c.n2) < 10) {
+        hoveredComp = c;
+        break;
+      }
+    }
+    if (!hoveredComp) hoveredNode = findNodeAt(state.mouse.x, state.mouse.y);
+    if (hoveredComp || hoveredNode) {
+      const groups = getCircuitGroups();
+      for (const g of groups) {
+        if (hoveredComp && g.components.includes(hoveredComp)) {
+          hoveredGroup = g; break;
+        }
+        if (hoveredNode && g.nodes.includes(hoveredNode)) {
+          hoveredGroup = g; break;
+        }
+      }
+    }
+  }
+
+  // Grid
+  // Grid
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 1 / state.scale; // keep grid lines thin when zoomed
+
+  ctx.beginPath();
+
+  // visible world bounds
+  const worldLeft = -state.panX / state.scale;
+  const worldTop = -state.panY / state.scale;
+  const worldRight = (width - state.panX) / state.scale;
+  const worldBottom = (height - state.panY) / state.scale;
+
+  // align grid lines to GRID_SIZE
+  const startX = Math.floor(worldLeft / GRID_SIZE) * GRID_SIZE;
+  const endX = Math.ceil(worldRight / GRID_SIZE) * GRID_SIZE;
+  const startY = Math.floor(worldTop / GRID_SIZE) * GRID_SIZE;
+  const endY = Math.ceil(worldBottom / GRID_SIZE) * GRID_SIZE;
+
+  for (let x = startX; x <= endX; x += GRID_SIZE) {
+    ctx.moveTo(x, startY);
+    ctx.lineTo(x, endY);
+  }
+  for (let y = startY; y <= endY; y += GRID_SIZE) {
+    ctx.moveTo(startX, y);
+    ctx.lineTo(endX, y);
+  }
+  ctx.stroke();
+
+  // draw axes
+  /* ctx.strokeStyle = '#333';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(worldLeft, 0);
+  ctx.lineTo(worldRight, 0);
+  ctx.moveTo(0, worldTop);
+  ctx.lineTo(0, worldBottom);
+  ctx.stroke(); */
+
+  // Selection box
+  if (state.selectionBox) {
+
+    const b = state.selectionBox;
+
+    const sx = Math.min(b.startX, b.endX);
+    const sy = Math.min(b.startY, b.endY);
+
+    const ex = Math.max(b.startX, b.endX);
+    const ey = Math.max(b.startY, b.endY);
+
+    ctx.save();
+
+    ctx.strokeStyle = 'rgba(0,229,255,0.9)';
+    ctx.fillStyle = 'rgba(0,229,255,0.12)';
+
+    ctx.lineWidth = 1 / state.scale;
+
+    ctx.fillRect(
+      sx,
+      sy,
+      ex - sx,
+      ey - sy
+    );
+
+    ctx.strokeRect(
+      sx,
+      sy,
+      ex - sx,
+      ey - sy
+    );
+
     ctx.restore();
   }
+
+  // Group highlight
+  if (hoveredGroup) {
+    const hoverPulse = 0.22 + 0.05 * Math.sin(currentAnimTime * 0.003);
+    ctx.save();
+    ctx.strokeStyle = `rgba(52,152,219,${hoverPulse})`;
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const c of hoveredGroup.components) {
+      ctx.moveTo(c.n1.x, c.n1.y);
+      ctx.lineTo(c.n2.x, c.n2.y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = `rgba(52,152,219,${hoverPulse * 0.65})`;
+    for (const n of hoveredGroup.nodes) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Component lines
+  for (const c of state.components) {
+    let wireColor = "#888";
+
+    const grad = ctx.createLinearGradient(
+      c.n1.x,
+      c.n1.y,
+      c.n2.x,
+      c.n2.y
+    );
+
+    let col1 = wireVoltageColor(c.n1.vx);
+    let col2 = wireVoltageColor(c.n2.vx);
+    let avgCol = [
+      (col1[0] + col2[0]) / 2,
+      (col1[1] + col2[1]) / 2,
+      (col1[2] + col2[2]) / 2
+    ];
+
+    grad.addColorStop(0, `rgb(${col1[0]}, ${col1[1]}, ${col1[2]})`);
+    grad.addColorStop(1, `rgb(${col2[0]}, ${col2[1]}, ${col2[2]})`);
+
+    const currentGlow = Math.min(Math.abs(c.current) * 0.2, 1);
+
+    ctx.shadowBlur = 5 * Math.pow(state.scale, 1.0);
+    // ctx.shadowColor = `rgb(${avgCol[0]}, ${avgCol[1]}, ${avgCol[2]})`;
+    const avgV =
+      ((c.n1.vx || 0) +
+        (c.n2.vx || 0)) * 0.5;
+
+    let avgVCol = wireVoltageColor(avgV);
+    ctx.shadowColor = `rgba(${avgVCol[0]}, ${avgVCol[1]}, ${avgVCol[2]}, ${currentGlow * 10})`;
+
+    ctx.strokeStyle = c.hasError ? '#e74c3c' : grad;
+    ctx.lineWidth = c.hasError ? 3 : 2;
+    ctx.beginPath();
+    ctx.moveTo(c.n1.x, c.n1.y);
+    ctx.lineTo(c.n2.x, c.n2.y);
+    ctx.stroke();
+  }
+
+  // Current flow animation — drawn on top of base lines when Ctrl is held
+  if (state.ctrlPressed) {
+    for (const c of state.components) {
+      drawCurrentFlow(ctx, c);
+    }
+  }
+
+  // Nodes
+  for (const n of state.nodes) {
+    const color = n.hasError ? '#e74c3c' : (n.vx !== undefined ? voltageColor(n.vx) : '#fff');
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = n.hasError ? '#e74c3c' : '#eee';
+    ctx.font = '12px monospace';
+    ctx.fillText(`V=${n.vx?.toFixed(2) ?? '-'}V`, n.x + 10, n.y - 10);
+  }
+
+  // Component symbols + error halo
+  for (const c of state.components) {
+    const def = COMPONENT_TYPES[c.type];
+    if (def && typeof def.draw === 'function') def.draw(ctx, c);
+    if (c.hasError) {
+      const mx = (c.n1.x + c.n2.x) / 2;
+      const my = (c.n1.y + c.n2.y) / 2;
+      ctx.save();
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.arc(mx, my, 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    /* const selected = state.multiSelected.includes(c);
+    if (selected) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,229,255,0.8)';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#00e5ff';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      if (selected) {
+        ctx.shadowColor = '#00e5ff';
+        ctx.shadowBlur = 20 / state.scale;
+      }
+      ctx.stroke();
+      ctx.restore();
+    } */
+  }
+
+  // Selection halo (pulsing, shape-aware)
+  const renderedSelection = new Set();
+
+  if (state.selectedObject) {
+
+    drawSelectionOutline(state.selectedObject);
+
+    renderedSelection.add(state.selectedObject);
+  }
+
+  for (const obj of state.multiSelected) {
+
+    // avoid double rendering
+    if (renderedSelection.has(obj)) continue;
+
+    drawSelectionOutline(obj);
+  }
+
 
   updateSelectedPropertiesDynamics();
 
@@ -2623,7 +2902,11 @@ function draw() {
             state.mode === 'CREATE_WIRE' ? 'Wire' :
               (state.activeTool || 'Select');
   let infoText = `Nodes: ${state.nodes.length} | Components: ${state.components.length} | Mode: ${modeText}`;
-  if (state.ctrlPressed && hoveredComp) {
+  if (state.multiSelected.length > 1) {
+    const nodeCount = state.multiSelected.filter(o => state.nodes.includes(o)).length;
+    const compCount = state.multiSelected.filter(o => state.components.includes(o)).length;
+    infoText += ` | Selected: ${state.multiSelected.length} (${nodeCount} nodes, ${compCount} comps)`;
+  } else if (state.ctrlPressed && hoveredComp) {
     const label = hoveredComp.type === 'W'
       ? 'Wire'
       : COMPONENT_TYPES[hoveredComp.type].label;
@@ -2661,24 +2944,64 @@ canvas.addEventListener('mousedown', (e) => {
   if (state.mode === 'SELECT') {
     const n = findNodeAt(gx, gy);
     if (n) {
+      if (state.shiftPressed) {
+        addToMultiSelection(n);
+        return;
+      }
       pushUndoState();
+      // If clicking a node that's part of the multi-selection, start a group drag
+      if (state.multiSelected.includes(n) && state.multiSelected.length > 1) {
+        state.draggingNode = n;
+        state.draggingGroup = true;
+        state.dragGroupOffsets = state.multiSelected
+          .filter(o => state.nodes.includes(o))
+          .map(node => ({ node, dx: node.x - n.x, dy: node.y - n.y }));
+        return;
+      }
+      state.multiSelected = [];
       state.selectedObject = n;
       state.draggingNode = n;
+      state.draggingGroup = false;
       updatePropertiesBox();
       return;
     }
     const c = findComponentAt(gx, gy);
     if (c) {
+      if (state.shiftPressed) {
+        if (c.type === 'SW') { c.closed = !c.closed; saveCircuitToURL(); }
+        addToMultiSelection(c);
+        return;
+      }
       if (c.type === 'SW') {
         c.closed = !c.closed;
         saveCircuitToURL();
       }
-
+      state.multiSelected = [];
       state.selectedObject = c;
       updatePropertiesBox();
       return;
     }
-    clearSelection();
+
+    // Clicked empty space
+    if (!state.shiftPressed) {
+      // Only clear if not shift — shift+drag on empty adds to selection
+      state.multiSelected = [];
+      clearSelection();
+    }
+
+    pushUndoState();
+
+    state.dragSelecting = true;
+    state.dragSelectStartX = gx;
+    state.dragSelectStartY = gy;
+
+    state.selectionBox = {
+      startX: gx,
+      startY: gy,
+      endX: gx,
+      endY: gy
+    };
+
     return;
   }
 
@@ -2763,8 +3086,26 @@ canvas.addEventListener('mousemove', (e) => {
   }
 
   if (state.draggingNode) {
-    state.draggingNode.x = state.mouse.x;
-    state.draggingNode.y = state.mouse.y;
+    if (state.draggingGroup && state.dragGroupOffsets.length > 0) {
+      // Move all nodes in the multi-selection relative to the anchor
+      for (const entry of state.dragGroupOffsets) {
+        entry.node.x = snapToGrid(state.mouse.x + entry.dx);
+        entry.node.y = snapToGrid(state.mouse.y + entry.dy);
+      }
+    } else {
+      state.draggingNode.x = state.mouse.x;
+      state.draggingNode.y = state.mouse.y;
+    }
+  }
+
+  if (state.dragSelecting && state.selectionBox) {
+    const dx = state.mouse.x - state.dragSelectStartX;
+    const dy = state.mouse.y - state.dragSelectStartY;
+    // Only show box if dragged more than half a grid cell
+    if (Math.abs(dx) > GRID_SIZE / 2 || Math.abs(dy) > GRID_SIZE / 2) {
+      state.selectionBox.endX = state.mouse.x;
+      state.selectionBox.endY = state.mouse.y;
+    }
   }
 });
 
@@ -2806,6 +3147,63 @@ canvas.addEventListener('mouseup', () => {
     saveCircuitToURL();
   }
   state.draggingNode = null;
+  state.draggingGroup = false;
+  state.dragGroupOffsets = [];
+
+  if (state.dragSelecting && state.selectionBox) {
+
+    const box = state.selectionBox;
+
+    const minX = Math.min(box.startX, box.endX);
+    const maxX = Math.max(box.startX, box.endX);
+    const minY = Math.min(box.startY, box.endY);
+    const maxY = Math.max(box.startY, box.endY);
+
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+
+    if (boxW > GRID_SIZE || boxH > GRID_SIZE) {
+      // Build set of currently selected items (shift = add to existing)
+      const existingSet = new Set(state.multiSelected);
+      if (state.selectedObject) existingSet.add(state.selectedObject);
+
+      const boxItems = [];
+
+      for (const n of state.nodes) {
+        if (n.x >= minX && n.x <= maxX && n.y >= minY && n.y <= maxY) {
+          boxItems.push(n);
+        }
+      }
+      for (const c of state.components) {
+        const cx = (c.n1.x + c.n2.x) * 0.5;
+        const cy = (c.n1.y + c.n2.y) * 0.5;
+        if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) {
+          boxItems.push(c);
+        }
+      }
+
+      if (state.shiftPressed) {
+        // Merge: add box items to existing selection (deduped)
+        for (const item of boxItems) existingSet.add(item);
+        state.selectedObject = null;
+        state.multiSelected = Array.from(existingSet);
+      } else {
+        state.selectedObject = null;
+        state.multiSelected = boxItems;
+      }
+
+      // Promote single item to selectedObject
+      if (state.multiSelected.length === 1) {
+        state.selectedObject = state.multiSelected[0];
+        state.multiSelected = [];
+      }
+
+      updatePropertiesBox();
+    }
+
+    state.dragSelecting = false;
+    state.selectionBox = null;
+  }
 });
 
 window.addEventListener('mouseup', () => {
@@ -2817,15 +3215,10 @@ document.getElementById('newCircuitBtn').addEventListener('click', () => {
   state.nodes = [];
   state.components = [];
   state.selectedObject = null;
-
-  hoveredNode = null;
-  hoveredComponent = null;
+  state.multiSelected = [];
 
   updatePropertiesBox();
-  // updateInfo();
   saveCircuitToURL();
-
-  // renderSaveList();
 });
 
 const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -2844,6 +3237,7 @@ document.addEventListener('click', (e) => {
 
   if (!insideMenu && !clickedHamburger) {
     saveMenu.classList.remove('open');
+    saveList.classList.remove('open');
   }
 });
 
@@ -2852,6 +3246,43 @@ document.getElementById('saveCircuitBtn').addEventListener('click', () => {
 });
 
 refreshSaveMenu();
+
+const savedCircuitsBtn = document.getElementById('savedCircuitsBtn');
+let tempOpen = false;
+
+savedCircuitsBtn.addEventListener('mouseenter', (e) => {
+  e.stopPropagation();
+  tempOpen = true;
+  saveList.classList.add('open');
+});
+savedCircuitsBtn.addEventListener('mouseleave', (e) => {
+  tempOpen = false;
+  setTimeout(() => {
+    if (!tempOpen) saveList.classList.remove('open');
+  }, 200);
+});
+
+saveMenu.addEventListener('mouseenter', () => {
+  tempOpen = true;
+  saveMenu.classList.add('open');
+});
+saveMenu.addEventListener('mouseleave', () => {
+  tempOpen = false;
+  setTimeout(() => {
+    if (!tempOpen) saveList.classList.remove('open');
+  }, 200);
+});
+
+saveList.addEventListener('mouseenter', () => {
+  tempOpen = true;
+  saveList.classList.add('open');
+});
+saveList.addEventListener('mouseleave', () => {
+  tempOpen = false;
+  setTimeout(() => {
+    if (!tempOpen) saveList.classList.remove('open');
+  }, 200);
+});
 
 // ===== Tool UI helpers =====
 const selectBtn = document.getElementById('selectBtn');
@@ -3047,6 +3478,20 @@ function simLoop() {
 }
 
 // Start
+const initialFade = document.getElementById('initial-fade');
+if (window.location.href.split("?").length >= 1) {
+  if (window.location.href.includes("?from=home")) {
+    setTimeout(() => {
+      initialFade.style.opacity = "0";
+      setTimeout(() => {
+        initialFade.remove();
+      }, 5000);
+    }, 500);
+  } else {
+    initialFade.remove();
+  }
+}
+
 loadCircuitFromURL();
 simLoop();
 draw();
