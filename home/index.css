@@ -226,6 +226,11 @@ body {
     gap: 16px;
 }
 
+.launch-btn {
+    cursor: pointer;
+    user-select: none;
+}
+
 .primary-btn,
 .secondary-btn {
     text-decoration: none;
@@ -439,6 +444,7 @@ body {
 
 .about {
     padding: 100px 24px 120px;
+    margin-top: -200px;
 }
 
 .section-title {
@@ -516,10 +522,152 @@ body {
     .primary-btn,
     .secondary-btn {
         width: 100%;
+        cursor: pointer;
     }
 
     .topbar {
         padding: 0 20px;
     }
 
+}
+
+
+/* ===== Scrollbar ===== */
+
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 229, 255, 0.18);
+    border-radius: 999px;
+    height: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 229, 255, 0.36);
+    /* scrollbar-shadow-color: 0 0 55px rgba(0, 229, 255, 0.45); */
+}
+
+/* Firefox */
+/* * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 229, 255, 0.18) var(--bg-primary);
+    scroll-snap-stop: always;
+    scroll-snap-type: y;
+
+    --webkit-scrollbar-width: 10px;
+} */
+
+.floating-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Hero preview sits above the floating items */
+.hero-preview {
+    position: relative;
+    z-index: 2;
+}
+
+.float-item {
+    position: fixed;
+    opacity: 0;
+    filter: blur(0.4px) grayscale(0.85) brightness(0.9);
+    will-change: transform, opacity;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* "yay i'm here" — fade + pop in opacity/filter only; transform driven by JS */
+.float-item.float-visible {
+    opacity: 0.08;
+    filter: blur(0.4px) grayscale(0.85) brightness(0.9);
+    transition:
+        opacity 0.8s cubic-bezier(0.34, 1.56, 0.64, 1),
+        filter 0.8s ease;
+    animation: floatPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes floatPop {
+    0% {
+        scale: 0.82;
+    }
+
+    60% {
+        scale: 1.06;
+    }
+
+    100% {
+        scale: 1.0;
+    }
+}
+
+/* ===== Resistor ===== */
+
+.resistor {
+    width: 120px;
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(to right,
+            transparent 0%, rgba(255, 255, 255, 0.6) 15%,
+            rgba(255, 255, 255, 0.6) 85%, transparent 100%);
+}
+
+.resistor::before {
+    content: '';
+    position: absolute;
+    left: 28px;
+    right: 28px;
+    top: -9px;
+    bottom: -9px;
+    border: 2.5px solid rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 4px;
+}
+
+/* ===== Node ===== */
+
+.node {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.7);
+    box-shadow: 0 0 14px rgba(255, 255, 255, 0.25);
+}
+
+/* ===== Wire ===== */
+
+.wire {
+    width: 160px;
+    height: 3px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.5);
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.15);
+}
+
+/* ===== Animation (drift is JS-driven, these are gone) ===== */
+
+/* ===== Feature card entrance ===== */
+
+.feature-card {
+    opacity: 0;
+    transform: translateY(24px);
+    transition:
+        opacity 0.55s ease,
+        transform 0.55s cubic-bezier(0.34, 1.4, 0.64, 1),
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.feature-card.card-visible {
+    opacity: 1;
+    transform: translateY(0);
 }

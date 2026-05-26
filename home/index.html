@@ -12,7 +12,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="index.css">
 </head>
 
@@ -63,6 +62,16 @@
             <img src="../images/demo-pic.png" alt="NodeLab Preview">
         </div>
 
+        <div class="floating-bg">
+
+            <div class="float-item resistor" style="top:16%; left:9%;" data-float="0"></div>
+
+            <div class="float-item node" style="top:34%; right:9%;" data-float="1"></div>
+
+            <div class="float-item wire" style="top:58%; left:7%;" data-float="2"></div>
+
+        </div>
+
     </main>
 
     <section class="about" id="about">
@@ -109,13 +118,71 @@
 
 </body>
 <script>
+    // ── Launch transition ──────────────────────────────────────────────
     document.querySelectorAll(".launch-btn").forEach(e => e.addEventListener("click", () => {
         document.body.style.transform = 'translateX(-100%)';
-        // document.getElementsByTagName("html")[0].style.transform = 'translateX(-100%)';
-        setTimeout(() => {
-            window.location.href = "../editor/?from=home";
-        }, 400);
+        setTimeout(() => { window.location.href = "../editor/?from=home"; }, 400);
     }));
+
+    // ── Floating items: independent Lissajous drift + organic squish ───
+    // Each item: different amplitudes, frequencies, phases → never sync
+    const floatConfigs = [
+        { sel: '.resistor', ax: 20, ay: 13, fx: 0.00037, fy: 0.00052, px: 0.0, py: 1.1, rAmp: 4, rF: 0.00028 },
+        { sel: '.node', ax: 11, ay: 18, fx: 0.00053, fy: 0.00038, px: 2.3, py: 0.4, rAmp: 0, rF: 0.00000 },
+        { sel: '.wire', ax: 22, ay: 10, fx: 0.00034, fy: 0.00046, px: 3.0, py: 1.9, rAmp: 5, rF: 0.00026 },
+    ];
+
+    const floatItems = floatConfigs.map(cfg => ({
+        ...cfg,
+        el: document.querySelector(`.floating-bg ${cfg.sel}`)
+    })).filter(cfg => cfg.el);
+
+    function driftTick(t) {
+        for (const item of floatItems) {
+            if (!item.el.classList.contains('float-visible')) continue;
+            const tx = item.ax * Math.sin(t * item.fx + item.px);
+            const ty = item.ay * Math.sin(t * item.fy + item.py);
+            const rot = item.rAmp * Math.sin(t * item.rF + item.px * 0.7);
+            const squeeze = 1 + 0.012 * Math.sin(t * item.rF * 1.4 + item.py);
+            item.el.style.transform =
+                `translate(${tx}px, ${ty}px) rotate(${rot}deg) scale(${squeeze}, ${1 / squeeze})`;
+        }
+        requestAnimationFrame(driftTick);
+    }
+    requestAnimationFrame(driftTick);
+
+    // ── Scroll-in entrance via IntersectionObserver ────────────────────
+    const floatEls = document.querySelectorAll('.float-item');
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                // Stagger by data-float index
+                const idx = parseInt(entry.target.dataset.float || '0');
+                setTimeout(() => {
+                    entry.target.classList.add('float-visible');
+                }, idx * 120);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.1 });
+
+    floatEls.forEach(el => observer.observe(el));
+
+    // ── Feature cards scroll entrance ─────────────────────────────────
+    const cardObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry, i) => {
+            if (entry.isIntersecting) {
+                const idx = Array.from(document.querySelectorAll('.feature-card')).indexOf(entry.target);
+                setTimeout(() => {
+                    entry.target.classList.add('card-visible');
+                }, idx * 90);
+                cardObserver.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.15 });
+
+    document.querySelectorAll('.feature-card').forEach(el => cardObserver.observe(el));
 </script>
 
 </html>
