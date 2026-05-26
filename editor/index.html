@@ -13,19 +13,68 @@
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/png" href="../images/favicon.png">
     <script src="https://mrdoob.github.io/stats.js/build/stats.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
 </head>
 
 <body>
     <div id="initial-fade">
-        <span id="big-title">NODE LAB<br>EDITOR</span>
+        <span id="big-title">
+            <!-- NODE LAB<br>EDITOR -->
+            <img src="../images/favicon.png">
+        </span>
     </div>
     <a href="../home">
         <div class="top-branding">
             NodeLab
         </div>
     </a>
+    <div id="left-topbar" class="toolbar menu-wrapper">
+        <button id="settingsBtn" class="hamburger-btn">⚙</button>
+
+        <div class="settings-menu" id="settingsMenu">
+
+            <div class="settings-header">
+                <div>
+                    <div class="settings-title">
+                        Settings
+                    </div>
+
+                    <div class="settings-subtitle">
+                        Simulation preferences
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-content">
+
+                <div class="settings-group">
+
+                    <label>
+                        <span>Sub Steps</span>
+                    </label>
+
+                    <div class="settings-description">
+                        Higher values improve simulation stability but reduce performance.
+                    </div>
+
+                    <div class="settings-slider-row">
+
+                        <input id="subStepsSlider" type="range" min="1" max="64" value="8">
+
+                        <span id="subStepsValue">
+                            8
+                        </span>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+    </div>
     <header class="toolbar" id="toolbar">
         <div class="menu-wrapper">
             <button id="hamburgerBtn" class="hamburger-btn">☰</button>

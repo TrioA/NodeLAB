@@ -263,7 +263,7 @@ body {
 /* ===== Preview ===== */
 
 .hero-preview {
-    width: 100%;
+    width: 80vw;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -282,17 +282,21 @@ body {
 
     background: #111;
 
-    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    margin-top: 450px;
+
+    transform: translateY(-50%) perspective(1000px) rotateX(10deg);
+
+    transition: transform 0.5s ease, box-shadow 0.5s ease;
 
     z-index: 0;
 }
 
 .hero-preview img:hover {
-    transform: translateY(-4px) scale(1.01);
+    transform: translateY(-50%) perspective(1000px) translateY(-4px) scale(1.01) rotateX(10deg);
 
-    /* box-shadow:
+    box-shadow:
         0 0 60px rgba(0, 229, 255, 0.14),
-        0 28px 80px rgba(0, 0, 0, 0.5); */
+        0 28px 80px rgba(0, 0, 0, 0.5);
 }
 
 .preview-window {

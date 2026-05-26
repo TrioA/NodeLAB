@@ -4,8 +4,6 @@ const info = document.getElementById('info');
 
 let width, height;
 const GRID_SIZE = 10;
-const SUBSTEPS = 20;
-const SIM_DT = 0.05 / SUBSTEPS;
 
 const stats = new Stats();
 
@@ -58,7 +56,12 @@ const state = {
   panning: false,
   lastMouseX: 0,
   lastMouseY: 0,
-  scale: 1
+  scale: 1,
+
+  settings: {
+    subSteps: 20,
+    simDT: 0.05 / 20,
+  },
 };
 
 const undoStack = [];
@@ -128,7 +131,7 @@ const COMPONENT_TYPES = {
     stamp(A, b, comp, ctx) {
       let { n1Idx, n2Idx } = ctx;
 
-      let G = comp.value / SIM_DT;
+      let G = comp.value / state.settings.simDT;
 
       A[n1Idx][n1Idx] += G;
       A[n2Idx][n2Idx] += G;
@@ -988,6 +991,36 @@ function redo() {
   clearSelection();
 }
 
+const DEFAULT_SETTINGS = {
+  subSteps: 8,
+  simDT: 0.05 / 8,
+};
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem("nodeLabSettings");
+
+    if (!raw) {
+      state.settings = { ...DEFAULT_SETTINGS };
+      return;
+    }
+
+    state.settings = {
+      ...DEFAULT_SETTINGS,
+      ...JSON.parse(raw)
+    };
+    // Update slider values
+    subStepsSlider.value = state.settings.subSteps;
+    subStepsValue.textContent = state.settings.subSteps;
+  } catch {
+    state.settings = { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem("nodeLabSettings", JSON.stringify(state.settings));
+}
+
 function exportCircuitData() {
   return {
     nodes: state.nodes.map(n => ({
@@ -1208,16 +1241,46 @@ function saveCircuitToLocalStorage() {
 
   if (!name) return;
 
-  const saves =
-    JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
+  const saves = JSON.parse(localStorage.getItem(SAVE_KEY) || '[]');
 
   // Reuse exportCircuitData — the same format used for undo/redo
   const raw = JSON.stringify(exportCircuitData());
 
-  const compressed =
-    LZString.compressToEncodedURIComponent(raw);
+  const compressed = LZString.compressToEncodedURIComponent(raw);
 
-  saves.unshift({
+  const existing = saves.find(s => s.name === name);
+
+  if (existing) {
+    const overwrite = confirm(`"${name}" already exists.\n\nOverwrite it?`);
+    if (!overwrite) return;
+
+    const existingIndex =
+      saves.findIndex(s => s.name === name);
+
+    if (existingIndex !== -1) {
+      saves[existingIndex] = {
+        id: Date.now(),
+        name,
+        data: compressed,
+        createdAt: Date.now()
+      };
+
+    }
+  } else {
+    saves.unshift({
+      id: Date.now(),
+      name,
+      data: compressed,
+      createdAt: Date.now()
+    });
+
+    localStorage.setItem(
+      SAVE_KEY,
+      JSON.stringify(saves)
+    );
+  }
+
+  /* saves.unshift({
     id: Date.now(),
     name,
     data: compressed,
@@ -1227,7 +1290,7 @@ function saveCircuitToLocalStorage() {
   localStorage.setItem(
     SAVE_KEY,
     JSON.stringify(saves)
-  );
+  ); */
 
   refreshSaveMenu();
 }
@@ -1313,8 +1376,9 @@ function drawCurrentFlow(ctx2d, comp) {
   // Don't draw if no current flowing
   if (absI < 1e-9) return;
 
-  const speed = Math.min(120, 15 + absI * 200); // px/s, scales with current magnitude
-  const direction = I >= 0 ? 1 : -1;
+  // const speed = Math.min(120, 15 + absI * 200); // px/s, scales with current magnitude
+  const speed = Math.log10(absI * 1000 + 1) * 14;
+  const direction = Math.sign(I) || 1;
 
   // Dash style varies by component type
   let dashLength, gapLength, lineWidth, color, alpha;
@@ -1780,12 +1844,12 @@ function solveCircuit() {
         else if (c.type === 'C') {
           const voltageNow = c.n1.vx - c.n2.vx;
 
-          c.current = c.value * ((voltageNow - c.capacitorVoltage) / SIM_DT);
+          c.current = c.value * ((voltageNow - c.capacitorVoltage) / state.settings.simDT);
 
           // save voltage for next timestep
           c.capacitorVoltage += (voltageNow - c.capacitorVoltage) * 0.15;
 
-          c.historyCurrent = (c.value / SIM_DT) * c.capacitorVoltage;
+          c.historyCurrent = (c.value / state.settings.simDT) * c.capacitorVoltage;
         }
       }
       calculateWireCurrents(groupNodes, groupComponents);
@@ -2455,14 +2519,8 @@ function normalize(r, g, b) {
   return [r / max, g / max, b / max];
 }
 
-let prevTime = Date.now();
-
 function draw() {
   stats.begin();
-  const now = Date.now();
-  const deltaTime = now - prevTime;
-  currentAnimTime += deltaTime;
-  prevTime = now;
 
   ctx.clearRect(0, 0, width, height);
   ctx.save();
@@ -3129,7 +3187,7 @@ canvas.addEventListener('wheel', (e) => {
   }
 
   // clamp scale
-  state.scale = Math.max(0.2, Math.min(5, state.scale));
+  state.scale = Math.max(0.2, Math.min(20, state.scale));
 
   // adjust pan so the point under cursor stays under cursor
   const worldAfter = worldBefore;
@@ -3211,11 +3269,22 @@ window.addEventListener('mouseup', () => {
 });
 
 document.getElementById('newCircuitBtn').addEventListener('click', () => {
+  const hasCircuit = state.nodes.length > 0 || state.components.length > 0;
+
+  if (hasCircuit) {
+    const confirmed = confirm("Clear the current circuit?");
+    if (!confirmed) return;
+  }
+
   pushUndoState();
   state.nodes = [];
   state.components = [];
+
   state.selectedObject = null;
-  state.multiSelected = [];
+  state.selectedObjects = [];
+
+  hoveredNode = null;
+  hoveredComponent = null;
 
   updatePropertiesBox();
   saveCircuitToURL();
@@ -3282,6 +3351,50 @@ saveList.addEventListener('mouseleave', () => {
   setTimeout(() => {
     if (!tempOpen) saveList.classList.remove('open');
   }, 200);
+});
+
+const settingsBtn =
+  document.getElementById('settingsBtn');
+
+const settingsMenu =
+  document.getElementById('settingsMenu');
+
+settingsBtn.addEventListener('click', (e) => {
+
+  e.stopPropagation();
+
+  settingsMenu.classList.toggle('open');
+
+  saveMenu.classList.remove('open');
+});
+
+document.addEventListener('click', (e) => {
+
+  const insideSettings =
+    settingsMenu.contains(e.target);
+
+  const clickedSettings =
+    settingsBtn.contains(e.target);
+
+  if (!insideSettings && !clickedSettings) {
+    settingsMenu.classList.remove('open');
+  }
+});
+
+const subStepsSlider = document.getElementById('subStepsSlider');
+const subStepsValue = document.getElementById('subStepsValue');
+
+subStepsSlider.value = state.settings.subSteps;
+subStepsValue.textContent = state.settings.subSteps;
+
+subStepsSlider.addEventListener('input', () => {
+  const value = parseInt(subStepsSlider.value);
+
+  subStepsValue.textContent = value;
+  state.settings.subSteps = value;
+  state.settings.simDT = 0.05 / value;
+
+  saveSettings();
 });
 
 // ===== Tool UI helpers =====
@@ -3468,9 +3581,19 @@ setupToolButton('addSwitch', 'CREATE_SWITCH');
 setupToolButton('addGround', 'CREATE_GROUND');
 
 // Simulation loop
+// Delta time
+let prevTime = 0;
 function simLoop() {
-  for (let i = 0; i < SUBSTEPS; i++) {
-    simTime += SIM_DT;
+  const now = Date.now();
+  const deltaTime = now - prevTime;
+  prevTime = now;
+
+  state.settings.simDT = Math.min((deltaTime / 1000), 0.05) / state.settings.subSteps;
+  currentAnimTime += deltaTime; // This determines how fast the animation plays
+
+  // console.log(deltaTime, state.settings.simDT);
+  for (let i = 0; i < state.settings.subSteps; i++) {
+    simTime += state.settings.simDT;
     solveCircuit();
   }
 
@@ -3494,6 +3617,7 @@ if (window.location.href.split("?").length >= 1) {
   }
 }
 
+loadSettings();
 loadCircuitFromURL();
 simLoop();
 draw();

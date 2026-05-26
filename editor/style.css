@@ -101,6 +101,12 @@ body {
   animation: shrinkIntro 2s ease-out forwards;
 }
 
+#big-title img {
+  filter: brightness(2) saturate(0) contrast(1.25);
+  mix-blend-mode: hard-light;
+  opacity: 100%;
+}
+
 /* ===== Toolbar ===== */
 .top-branding {
   position: fixed;
@@ -597,6 +603,7 @@ canvas {
 
   opacity: 0;
   visibility: hidden;
+
   pointer-events: none;
 
   transform: translateY(-8px) scale(0.96);
@@ -755,4 +762,240 @@ canvas {
   pointer-events: auto;
 
   transform: translateX(0) scale(1);
+}
+
+/* ===== Settings Menu ===== */
+#left-topbar {
+  position: fixed;
+  top: 41px;
+  left: 8px;
+  padding: 4px 6 px;
+  transform: none;
+}
+
+/* ===== Settings Menu ===== */
+
+.settings-menu {
+  position: absolute;
+
+  top: 43px;
+  left: 0;
+
+  width: 280px;
+
+  background:
+    linear-gradient(180deg,
+      rgba(28, 34, 44, 0.96),
+      rgba(18, 24, 32, 0.96));
+
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+
+  border: 1px solid rgba(255, 255, 255, 0.06);
+
+  border-top: 1px solid rgba(0, 229, 255, 0.25);
+
+  border-radius: var(--radius-lg);
+
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.45),
+    0 0 40px rgba(0, 229, 255, 0.08);
+
+  overflow: hidden;
+
+  z-index: 9999;
+
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+
+  transform:
+    translateY(-10px) scale(0.96);
+
+  transform-origin: top left;
+
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0.2s;
+}
+
+.settings-menu.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+
+  transform:
+    translateY(0) scale(1);
+}
+
+/* ===== Header ===== */
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 14px 16px;
+
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+
+  background:
+    linear-gradient(to bottom,
+      rgba(255, 255, 255, 0.03),
+      transparent);
+}
+
+.settings-title {
+  font-size: 13px;
+  font-weight: 700;
+
+  letter-spacing: 0.4px;
+
+  color: var(--accent);
+}
+
+.settings-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+
+  margin-top: 2px;
+}
+
+/* ===== Content ===== */
+
+.settings-content {
+  padding: 14px;
+}
+
+/* ===== Groups ===== */
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+
+  gap: 12px;
+
+  padding: 14px;
+
+  border-radius: 14px;
+
+  background:
+    rgba(255, 255, 255, 0.025);
+
+  border:
+    1px solid rgba(255, 255, 255, 0.04);
+
+  transition: transform 0.25s ease;
+}
+
+.settings-group:hover {
+  border-color: rgba(0, 229, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+  transform: scale(1.01);
+}
+
+/* ===== Labels ===== */
+
+.settings-group label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  font-size: 12px;
+  font-weight: 600;
+
+  color: var(--text-primary);
+
+  letter-spacing: 0.2px;
+}
+
+.settings-description {
+  font-size: 11px;
+  line-height: 1.5;
+
+  color: var(--text-secondary);
+
+  margin-top: -4px;
+}
+
+/* ===== Slider Row ===== */
+
+.settings-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ===== Slider ===== */
+
+.settings-slider-row input[type="range"] {
+  flex: 1;
+
+  appearance: none;
+
+  height: 5px;
+
+  border-radius: 999px;
+
+  background:
+    linear-gradient(to right,
+      rgba(0, 229, 255, 0.8),
+      rgba(0, 229, 255, 0.2));
+
+  outline: none;
+}
+
+/* webkit thumb */
+.settings-slider-row input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+
+  width: 16px;
+  height: 16px;
+
+  border-radius: 50%;
+
+  background: #00e5ff;
+
+  border: none;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 0 16px rgba(0, 229, 255, 0.5);
+
+  transition:
+    transform 1s ease,
+    box-shadow 0.12s ease;
+}
+
+.settings-slider-row input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+
+  box-shadow:
+    0 0 24px rgba(0, 229, 255, 0.8);
+}
+
+/* ===== Value ===== */
+
+.settings-slider-row span {
+  min-width: 38px;
+
+  padding: 6px 8px;
+
+  border-radius: 10px;
+
+  text-align: center;
+
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+
+  color: var(--accent);
+
+  background:
+    rgba(0, 229, 255, 0.08);
+
+  border:
+    1px solid rgba(0, 229, 255, 0.12);
 }
