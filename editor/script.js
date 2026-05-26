@@ -1377,7 +1377,7 @@ function drawCurrentFlow(ctx2d, comp) {
   if (absI < 1e-9) return;
 
   // const speed = Math.min(120, 15 + absI * 200); // px/s, scales with current magnitude
-  const speed = Math.log10(absI * 1000 + 1) * 14;
+  const speed = Math.log10(absI * 1000 + 1) * 28;
   const direction = Math.sign(I) || 1;
 
   // Dash style varies by component type
