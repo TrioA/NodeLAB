@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NodeLab — Interactive Circuit Simulator</title>
+    <meta name="description"
+        content="Browser-based interactive circuit simulator with real-time Modified Nodal Analysis" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://mrdoob.github.io/stats.js/build/stats.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+</head>
+
+<body>
+    <header class="toolbar" id="toolbar">
+        <div class="menu-wrapper">
+            <button id="hamburgerBtn" class="hamburger-btn">☰</button>
+
+            <div class="save-menu" id="saveMenu">
+                <div class="save-menu-header">Saves</div>
+
+                <button id="newCircuitBtn" class="save-item">+ New Circuit</button>
+                <button id="saveCircuitBtn" class="save-item">+ Save Current Circuit</button>
+
+                <div class="save-submenu-wrapper">
+
+                    <button id="savedCircuitsBtn" class="save-item">
+                        Saved Circuits ▸
+                    </button>
+
+                    <div class="save-submenu" id="saveList">
+                        <!-- save entries injected here -->
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar-brand">NodeLab</div>
+        <div class="toolbar-divider"></div>
+
+        <nav class="toolbar-group" aria-label="Tools">
+            <div class="tool-wrapper">
+                <button id="selectBtn" class="tool-btn active" title="Select & Move">Select</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addNodeBtn" class="tool-btn" title="Create Node">Node</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addWire" class="tool-btn" title="Place Wire">Wire</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addVoltage" class="tool-btn" title="Place Voltage Source">Voltage</button>
+                <div class="tool-dropdown">
+                    <label for="voltageValue">Voltage (V)</label>
+                    <input id="voltageValue" type="number" value="5" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addResistor" class="tool-btn" title="Place Resistor">Resistor</button>
+                <div class="tool-dropdown">
+                    <label for="resistorValue">Resistance (Ω)</label>
+                    <input id="resistorValue" type="number" value="1000" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addCapacitor" class="tool-btn" title="Place Capacitor">Capacitor</button>
+                <div class="tool-dropdown">
+                    <label for="capacitorValue">Capacitance (F)</label>
+                    <input id="capacitorValue" type="number" value="1e-6" step="any" min="1e-12" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addDiode" class="tool-btn" title="Place Diode">Diode</button>
+                <div class="tool-dropdown">
+                    <label for="diodeValue">Forward Voltage (V)</label>
+                    <input id="diodeValue" type="number" value="0.7" step="any" min="0.001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addLED" class="tool-btn" title="Place LED">LED</button>
+                <div class="tool-dropdown">
+                    <label for="ledValue">Forward Voltage (V)</label>
+                    <input id="ledValue" type="number" value="1.7" step="any" min="0.001" />
+                </div>
+            </div>
+            <!-- Add ACV -->
+            <div class="tool-wrapper">
+                <button id="addACV" class="tool-btn" title="Place AC Voltage">AC Voltage</button>
+                <div class="tool-dropdown">
+                    <label for="acVoltageValue">AC Voltage (V)</label>
+                    <input id="acVoltageValue" type="number" value="5" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addGround" class="tool-btn" title="Place Ground">Ground</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addSwitch" class="tool-btn" title="Place Switch">Switch</button>
+            </div>
+        </nav>
+
+        <!--div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+            <button id="deleteModeBtn" class="tool-btn tool-btn-danger" title="Delete Mode">Delete</button>
+            <button id="clearBtn" class="tool-btn" title="Clear All">Clear</button>
+        </div>-->
+        <div class="toolbar-spacer"></div>
+        <div class="toolbar-hint">Click two nodes to place · RMB drag to pan</div>
+    </header>
+
+    <main class="canvas-container" id="canvasContainer">
+        <canvas id="canvas"></canvas>
+        <div class="info-bar" id="info">Nodes: 0 | Components: 0</div>
+        <div class="mouse-coords" id="mouseCoords">X: 0 · Y: 0</div>
+
+        <aside class="properties-box" id="propertiesBox" style="display: none;">
+            <h3 class="properties-title">Properties</h3>
+            <div id="propertiesContent"></div>
+        </aside>
+
+        <div class="tooltip-box" id="tooltipBox" style="display: none;"></div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

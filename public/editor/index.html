@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NodeLab — Interactive Circuit Simulator</title>
+    <meta name="description"
+        content="Browser-based interactive circuit simulator with real-time Modified Nodal Analysis" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="../editor/style.css">
+    <link rel="icon" type="image/png" href="../images/favicon.png">
+    <script src="https://mrdoob.github.io/stats.js/build/stats.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+</head>
+
+<body>
+    <div id="initial-fade">
+        <span id="big-title">
+            <!-- NODE LAB<br>EDITOR -->
+            <img src="../images/favicon.png">
+        </span>
+    </div>
+    <a href="../home">
+        <div class="top-branding">
+            NodeLab
+        </div>
+    </a>
+    <div id="left-topbar" class="toolbar menu-wrapper">
+        <button id="settingsBtn" class="hamburger-btn">⚙</button>
+
+        <div class="settings-menu" id="settingsMenu">
+
+            <div class="settings-header">
+                <div>
+                    <div class="settings-title">
+                        Settings
+                    </div>
+
+                    <div class="settings-subtitle">
+                        Simulation preferences
+                    </div>
+                </div>
+            </div>
+
+            <div class="settings-content">
+
+                <div class="settings-group">
+
+                    <label>
+                        <span>Sub Steps</span>
+                    </label>
+
+                    <div class="settings-description">
+                        Higher values improve simulation stability but reduce performance.
+                    </div>
+
+                    <div class="settings-slider-row">
+
+                        <input id="subStepsSlider" type="range" min="1" max="64" value="8">
+
+                        <span id="subStepsValue">
+                            8
+                        </span>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+    <div id="lhsPanel" class="lhs-panel">
+        <div id="lhsHeader" class="lhs-panel-header">
+            <span>👁 Settings</span>
+            <button id="lhsToggleBtn" class="lhs-panel-toggle-btn">▶</button>
+        </div>
+        <div id="lhsContent" class="lhs-panel-content collapsed">
+            <label class="lhs-checkbox-label">
+                <input type="checkbox" id="chkUseVoltageColoring" checked>
+                <span>Use Voltage-based Coloring</span>
+            </label>
+            <label class="lhs-checkbox-label">
+                <input type="checkbox" id="chkShowNodeVoltages" checked>
+                <span>Show Node Voltages</span>
+            </label>
+            <label class="lhs-checkbox-label">
+                <input type="checkbox" id="chkShowComponentNames" checked>
+                <span>Show Component Names</span>
+            </label>
+            <label class="lhs-checkbox-label">
+                <input type="checkbox" id="chkShowComponentValues" checked>
+                <span>Show Component Values</span>
+            </label>
+            <label class="lhs-checkbox-label">
+                <input type="checkbox" id="chkShowCurrentFlow">
+                <span>Show Current Flow Animation</span>
+            </label>
+        </div>
+    </div>
+    <header class="toolbar" id="toolbar">
+        <div class="toolbar-drag-handle" title="Drag to move toolbar">⋮⋮</div>
+        <div class="menu-wrapper">
+            <button id="hamburgerBtn" class="hamburger-btn">☰</button>
+
+            <div class="save-menu" id="saveMenu">
+                <div class="save-menu-header">File</div>
+
+                <button id="newCircuitBtn" class="save-item">+ New Circuit</button>
+                <button id="saveCircuitBtn" class="save-item">+ Save Current Circuit</button>
+
+                <div class="save-submenu-wrapper">
+
+                    <button id="savedCircuitsBtn" class="save-item">
+                        Saved Circuits ▸
+                    </button>
+
+                    <div class="save-submenu" id="saveList">
+                        <!-- save entries injected here -->
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar-brand">NodeLab</div>
+        <div class="toolbar-divider"></div>
+
+        <nav class="toolbar-group" aria-label="Tools">
+            <div class="tool-wrapper">
+                <button id="pauseBtn" class="tool-btn" title="Pause / Resume Simulation (Space)">⏸ Pause</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="tool-wrapper">
+                <button id="selectBtn" class="tool-btn active" title="Select & Move">Select</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="panToolBtn" class="tool-btn" title="Pan Canvas">Pan</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addNodeBtn" class="tool-btn" title="Create Node">Node</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addWire" class="tool-btn" title="Place Wire">Wire</button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addGround" class="tool-btn" title="Place Ground">Ground</button>
+            </div>
+            <div class="toolbar-divider"></div>
+            <div class="tool-wrapper">
+                <button id="addVoltage" class="tool-btn" title="Place Voltage Source">Voltage</button>
+                <div class="tool-dropdown">
+                    <label for="voltageValue">Voltage (V)</label>
+                    <input id="voltageValue" type="number" value="5" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addResistor" class="tool-btn" title="Place Resistor">Resistor</button>
+                <div class="tool-dropdown">
+                    <label for="resistorValue">Resistance (Ω)</label>
+                    <input id="resistorValue" type="number" value="1000" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addCapacitor" class="tool-btn" title="Place Capacitor">Capacitor</button>
+                <div class="tool-dropdown">
+                    <label for="capacitorValue">Capacitance (F)</label>
+                    <input id="capacitorValue" type="number" value="1e-6" step="any" min="1e-12" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addDiode" class="tool-btn" title="Place Diode">Diode</button>
+                <div class="tool-dropdown">
+                    <label for="diodeValue">Forward Voltage (V)</label>
+                    <input id="diodeValue" type="number" value="0.7" step="any" min="0.001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addLED" class="tool-btn" title="Place LED">LED</button>
+                <div class="tool-dropdown">
+                    <label for="ledValue">Forward Voltage (V)</label>
+                    <input id="ledValue" type="number" value="1.7" step="any" min="0.001" />
+                </div>
+            </div>
+            <!-- Add ACV -->
+            <div class="tool-wrapper">
+                <button id="addACV" class="tool-btn" title="Place AC Voltage">AC Voltage</button>
+                <div class="tool-dropdown">
+                    <label for="acVoltageValue">AC Voltage (V)</label>
+                    <input id="acVoltageValue" type="number" value="5" step="any" min="0.0001" />
+                </div>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addSwitch" class="tool-btn" title="Place Switch">Switch</button>
+            </div>
+        </nav>
+        <div class="toolbar-drag-handle" title="Drag to move toolbar">⋮⋮</div>
+    </header>
+
+    <main class="canvas-container" id="canvasContainer">
+        <canvas id="canvas"></canvas>
+        <div class="info-bar" id="info">Nodes: 0 | Components: 0</div>
+        <div class="mouse-coords" id="mouseCoords">X: 0 · Y: 0</div>
+
+        <aside class="properties-box" id="propertiesBox" style="display: none;">
+            <h3 class="properties-title">Properties</h3>
+            <div id="propertiesContent"></div>
+        </aside>
+
+        <div class="tooltip-box" id="tooltipBox" style="display: none;"></div>
+    </main>
+
+    <script type="module" src="../editor/canvas.js"></script>
+</body>
+
+</html>
