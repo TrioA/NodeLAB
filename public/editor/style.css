@@ -17,7 +17,7 @@
   --danger-subtle: rgba(248, 81, 73, 0.15);
   --success: #3fb950;
   --warning: #d29922;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -1053,6 +1053,73 @@ canvas {
   color: var(--text-secondary);
 
   margin-top: -4px;
+}
+
+/* ===== Custom Theme Checkbox Toggle Switch ===== */
+.settings-row,
+.settings-group label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: color 0.15s ease;
+}
+
+.settings-row:hover,
+.settings-group label:hover {
+  color: var(--accent);
+}
+
+.settings-row input[type="checkbox"],
+.settings-group input[type="checkbox"],
+.settings-menu input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 36px !important;
+  height: 20px !important;
+  background: var(--bg-tertiary) !important;
+  border: 1px solid var(--border-primary) !important;
+  border-radius: 20px !important;
+  position: relative !important;
+  cursor: pointer !important;
+  outline: none !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin: 0 !important;
+  flex-shrink: 0 !important;
+}
+
+.settings-row input[type="checkbox"]::before,
+.settings-group input[type="checkbox"]::before,
+.settings-menu input[type="checkbox"]::before {
+  content: "" !important;
+  position: absolute !important;
+  top: 2px !important;
+  left: 2px !important;
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 50% !important;
+  background: var(--text-muted) !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.settings-row input[type="checkbox"]:checked,
+.settings-group input[type="checkbox"]:checked,
+.settings-menu input[type="checkbox"]:checked {
+  background: rgba(0, 229, 255, 0.25) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.3) !important;
+}
+
+.settings-row input[type="checkbox"]:checked::before,
+.settings-group input[type="checkbox"]:checked::before,
+.settings-menu input[type="checkbox"]:checked::before {
+  transform: translateX(16px) !important;
+  background: var(--accent) !important;
+  box-shadow: 0 0 8px #00e5ff !important;
 }
 
 /* ===== Slider Row ===== */

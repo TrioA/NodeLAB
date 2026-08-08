@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="../editor/style.css">
     <link rel="icon" type="image/png" href="../images/favicon.png">
@@ -340,13 +340,23 @@
 
         <nav class="toolbar-group" aria-label="Tools">
             <div class="tool-wrapper">
-                <button id="selectBtn" class="tool-btn active" title="Select & Move (1)">
+                <button id="selectBtn" class="tool-btn active" title="Select & Move (`)">
                     <span class="comp-icon"><i data-lucide="mouse-pointer"></i></span>
                 </button>
             </div>
             <div class="tool-wrapper">
-                <button id="panToolBtn" class="tool-btn" title="Pan Canvas (Pan)">
-                    <span class="comp-icon"><i data-lucide="hand"></i></span>
+                <button id="addNodeToolbarBtn" class="tool-btn" title="Create Node (1)">
+                    <span class="comp-icon"><i data-lucide="circle-dot"></i></span>
+                </button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="addWireToolbarBtn" class="tool-btn" title="Place Wire (2)">
+                    <span class="comp-icon"><i data-lucide="minus"></i></span>
+                </button>
+            </div>
+            <div class="tool-wrapper">
+                <button id="panToolBtn" class="tool-btn" title="Pan Canvas (3)">
+                    <span class="comp-icon"><i data-lucide="move"></i></span>
                 </button>
             </div>
         </nav>

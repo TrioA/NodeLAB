@@ -1009,6 +1009,14 @@ export function setMode(mode) {
     const btn = document.getElementById(btnId);
     if (btn) btn.classList.add('active');
   }
+  if (mode === 'CREATE_NODE') {
+    const b2 = document.getElementById('addNodeToolbarBtn');
+    if (b2) b2.classList.add('active');
+  }
+  if (mode === 'CREATE_WIRE') {
+    const b2 = document.getElementById('addWireToolbarBtn');
+    if (b2) b2.classList.add('active');
+  }
 
   if (editorState.activeTool) {
     const def = COMPONENT_TYPES[editorState.activeTool];
@@ -1287,6 +1295,16 @@ export function initUI(callbacks) {
   const addNodeBtn = dom.addNodeBtn;
   if (addNodeBtn) {
     addNodeBtn.addEventListener('click', () => setMode('CREATE_NODE'));
+  }
+
+  const addNodeToolbarBtn = document.getElementById('addNodeToolbarBtn');
+  if (addNodeToolbarBtn) {
+    addNodeToolbarBtn.addEventListener('click', () => setMode('CREATE_NODE'));
+  }
+
+  const addWireToolbarBtn = document.getElementById('addWireToolbarBtn');
+  if (addWireToolbarBtn) {
+    addWireToolbarBtn.addEventListener('click', () => setMode('CREATE_WIRE'));
   }
 
   const deleteBtn = dom.deleteModeBtn;

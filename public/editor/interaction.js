@@ -315,6 +315,24 @@ export function initInteractions(canvasEl) {
 
     if (isEditable) return;
 
+    if (e.code === 'Backquote') {
+      setMode('SELECT');
+      return;
+    }
+    if (e.code === 'Digit1' || e.code === 'Numpad1') {
+      setMode('CREATE_NODE');
+      return;
+    }
+    if (e.code === 'Digit2' || e.code === 'Numpad2') {
+      setMode('CREATE_WIRE');
+      return;
+    }
+    if (e.code === 'Digit3' || e.code === 'Numpad3') {
+      if (editorState.mode === 'PAN') setMode('SELECT');
+      else setMode('PAN');
+      return;
+    }
+
     switch (e.code) {
       case 'Delete': {
         if (editorState.multiSelected.length > 1) {
