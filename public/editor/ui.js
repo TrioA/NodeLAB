@@ -9,7 +9,7 @@ import {
 } from './utils.js';
 
 import { saveSettings } from './history.js';
-import { COMPONENT_TYPES } from './simulation.js';
+import { COMPONENT_TYPES, stepSimulation, stepSimulationBackward } from './simulation.js';
 
 // Centralized DOM reference dictionary with lazy getters
 export const dom = {
@@ -36,10 +36,19 @@ export const dom = {
   get deleteModeBtn() { return document.getElementById('deleteModeBtn'); },
   get initialFade() { return document.getElementById('initial-fade'); },
   get pauseBtn() { return document.getElementById('pauseBtn'); },
+  get playBtn() { return document.getElementById('playBtn'); },
+  get stepBtn() { return document.getElementById('stepBtn'); },
+  get stepBackBtn() { return document.getElementById('stepBackBtn'); },
+  get stepIntervalInput() { return document.getElementById('stepIntervalInput'); },
+  get simStatus() { return document.getElementById('simStatus'); },
   get lhsPanel() { return document.getElementById('lhsPanel'); },
   get lhsHeader() { return document.getElementById('lhsHeader'); },
   get lhsToggleBtn() { return document.getElementById('lhsToggleBtn'); },
   get lhsContent() { return document.getElementById('lhsContent'); },
+  get rhsPanel() { return document.getElementById('rhsPanel'); },
+  get rhsHeader() { return document.getElementById('rhsHeader'); },
+  get rhsToggleBtn() { return document.getElementById('rhsToggleBtn'); },
+  get rhsContent() { return document.getElementById('rhsContent'); },
   get chkUseVoltageColoring() { return document.getElementById('chkUseVoltageColoring'); },
   get chkShowNodeVoltages() { return document.getElementById('chkShowNodeVoltages'); },
   get chkShowComponentNames() { return document.getElementById('chkShowComponentNames'); },
@@ -298,26 +307,204 @@ export function updatePropertiesBox() {
 
     let valueLabel = 'Value';
     if (c.type === 'R') valueLabel = 'Resistance (Ω)';
+    else if (c.type === 'POT') valueLabel = 'Total Resistance (Ω)';
+    else if (c.type === 'BAT') valueLabel = 'Battery Voltage (V)';
+    else if (c.type === 'ISRC') valueLabel = 'Current (A)';
+    else if (c.type === 'VM') valueLabel = 'Input Impedance (Ω)';
+    else if (c.type === 'AM') valueLabel = 'Shunt Resistance (Ω)';
+    else if (c.type === 'FUSE') valueLabel = 'Current Rating (A)';
+    else if (c.type === 'LAMP') valueLabel = 'Cold Resistance (Ω)';
+    else if (c.type === 'TH') valueLabel = 'Nominal R at 25°C (Ω)';
+    else if (c.type === 'LDR') valueLabel = 'Dark Resistance (Ω)';
+    else if (c.type === 'RELAY') valueLabel = 'Activation Threshold (V)';
     else if (c.type === 'V') valueLabel = 'Voltage (V)';
     else if (c.type === 'W') valueLabel = 'Wire Resistance (Ω)';
     else if (c.type === 'C') valueLabel = 'Capacitance (F)';
     else if (c.type === 'D') valueLabel = 'Forward Voltage (V)';
     else if (c.type === 'LED') valueLabel = 'Forward Voltage (V)';
-    else if (c.type === 'S') valueLabel = 'Resistance (Ω)';
+    else if (c.type === 'SW') valueLabel = 'Resistance (Ω)';
     else if (c.type === 'ACV') valueLabel = 'Amplitude (V)';
 
     const v1 = c.n1.vx?.toFixed(2) ?? '-';
     const v2 = c.n2.vx?.toFixed(2) ?? '-';
     const diff = (c.n1.vx - c.n2.vx)?.toFixed(2) ?? '-';
 
-    const isVoltage = c.type === 'V';
+    const isVoltage = c.type === 'V' || c.type === 'BAT' || c.type === 'ISRC';
     const canFlip =
       c.type === 'D' ||
       c.type === 'LED' ||
       c.type === 'V' ||
+      c.type === 'BAT' ||
+      c.type === 'ISRC' ||
+      c.type === 'VM' ||
+      c.type === 'AM' ||
+      c.type === 'RELAY' ||
       c.type === 'ACV';
     const polarity = c.polarity || 1;
     const polarityText = polarity === 1 ? 'N1 is +,<br>N2 is -' : 'N1 is -,<br>N2 is +';
+
+    let extraFieldsHtml = '';
+
+    if (c.type === 'POT') {
+      const wiperPct = Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100);
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Wiper Position (<span id="propWiperLabel">${wiperPct}%</span>)</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="range" id="propWiperSlider" min="0" max="100" value="${wiperPct}" style="flex:1;" />
+            <input type="number" id="propWiperVal" min="0" max="100" value="${wiperPct}" style="width:55px;" />
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>Effective Resistance</label>
+          <div style="font-weight:bold;font-family:monospace;color:#f39c12;" id="propEffectiveRText">
+            ${((c.effectiveResistance || c.value * 0.5)).toFixed(1)} Ω
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'FUSE') {
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Cold Resistance (Ω)</label>
+          <input type="number" id="propColdRes" value="${c.coldResistance || 0.01}" step="any" min="0.0001" />
+        </div>
+        <div class="properties-field">
+          <label>Fuse Status</label>
+          <div id="propFuseStatus" style="font-weight:bold;color:${c.blown ? '#e74c3c' : '#2ecc71'};">
+            ${c.blown ? 'BLOWN / OPEN' : 'INTACT'}
+          </div>
+        </div>
+        <div class="properties-field" id="propResetFuseContainer" style="${c.blown ? '' : 'display:none;'}">
+          <button type="button" class="tool-btn" id="propResetFuse" style="background:#e74c3c;color:#fff;">Reset Fuse</button>
+        </div>
+      `;
+    }
+
+    if (c.type === 'LAMP') {
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Rated Power (W)</label>
+          <input type="number" id="propRatedPower" value="${c.ratedPower || 1.0}" step="any" min="0.01" />
+        </div>
+        <div class="properties-field">
+          <label>Lamp Glow Color</label>
+          <input type="color" id="propLampColor" value="${c.lampColor || '#ffdd57'}" />
+        </div>
+        <div class="properties-field">
+          <label>Power Dissipation</label>
+          <div style="font-weight:bold;font-family:monospace;color:#f39c12;" id="propPowerText">
+            ${(c.power || 0).toFixed(2)} W
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>Brightness</label>
+          <div style="font-weight:bold;font-family:monospace;" id="propBrightnessText">
+            ${Math.round((c.displayBrightness || 0) * 100)}%
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'TH') {
+      const temp = c.temperature !== undefined ? c.temperature : 25;
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Temperature (<span id="propTempLabel">${temp} °C</span>)</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="range" id="propTempSlider" min="-40" max="150" value="${temp}" style="flex:1;" />
+            <input type="number" id="propTempInput" min="-40" max="150" value="${temp}" style="width:60px;" />
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>Beta Coefficient (K)</label>
+          <input type="number" id="propBeta" value="${c.beta || 3950}" step="1" min="100" />
+        </div>
+        <div class="properties-field">
+          <label>Effective Resistance R(T)</label>
+          <div style="font-weight:bold;font-family:monospace;color:#3498db;" id="propEffectiveRText">
+            ${(c.effectiveResistance || c.value || 10000).toFixed(1)} Ω
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'LDR') {
+      const light = Math.round((c.lightLevel !== undefined ? c.lightLevel : 0.5) * 100);
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Light Level (<span id="propLightLabel">${light}%</span>)</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="range" id="propLightSlider" min="0" max="100" value="${light}" style="flex:1;" />
+            <input type="number" id="propLightInput" min="0" max="100" value="${light}" style="width:55px;" />
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>Light Resistance (Ω)</label>
+          <input type="number" id="propLightRes" value="${c.lightResistance || 100}" step="any" min="0.1" />
+        </div>
+        <div class="properties-field">
+          <label>Effective Resistance R(light)</label>
+          <div style="font-weight:bold;font-family:monospace;color:#f1c40f;" id="propEffectiveRText">
+            ${(c.effectiveResistance || 10000).toFixed(1)} Ω
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'RELAY') {
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Contact Type</label>
+          <select id="propContactType" style="padding:4px 8px;background:#222;color:#fff;border:1px solid #444;border-radius:4px;">
+            <option value="NO" ${c.contactType === 'NO' || !c.contactType ? 'selected' : ''}>NO (Normally Open)</option>
+            <option value="NC" ${c.contactType === 'NC' ? 'selected' : ''}>NC (Normally Closed)</option>
+          </select>
+        </div>
+        <div class="properties-field">
+          <label>Coil Resistance (Ω)</label>
+          <input type="number" id="propCoilRes" value="${c.coilResistance || 100}" step="any" min="1" />
+        </div>
+        <div class="properties-field">
+          <label>Relay State</label>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="propRelayStatus" style="font-weight:bold;color:${c.isEnergized ? '#2ecc71' : '#888'};">
+              ${c.isEnergized ? 'ENERGIZED' : 'DE-ENERGIZED'}
+            </span>
+            <span id="propRelayContact" style="font-size:11px;color:${c.closed ? '#2ecc71' : '#e74c3c'};">
+              (${c.closed ? 'CLOSED' : 'OPEN'})
+            </span>
+          </div>
+        </div>
+        <div class="properties-field">
+          <button type="button" class="tool-btn" id="propRelayToggle">Toggle Coil Override</button>
+        </div>
+      `;
+    }
+
+    if (c.type === 'VM') {
+      const vmVolt = (c.n1.vx != null && c.n2.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(3);
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Measured Voltage</label>
+          <div style="font-size:16px;font-weight:bold;font-family:monospace;color:#00e5ff;" id="propVoltMeasureText">
+            ${vmVolt} V
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'AM') {
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Measured Current</label>
+          <div style="font-size:16px;font-weight:bold;font-family:monospace;color:#2ecc71;" id="propCurrMeasureText">
+            ${formatCurrent(c.current || 0)}
+          </div>
+        </div>
+      `;
+    }
 
     content.innerHTML = `
     <div class="properties-field">
@@ -332,6 +519,7 @@ export function updatePropertiesBox() {
       <label>${valueLabel}</label>
       <input type="number" id="propValue" value="${c.value}" step="any" min="0.0001" />
     </div>` : ''}
+    ${extraFieldsHtml}
     ${c.type === 'LED' ? `
       <div class="properties-field">
         <label>LED Color</label>
@@ -340,7 +528,7 @@ export function updatePropertiesBox() {
     ` : ''}
     ${isVoltage ? `
       <div class="properties-field">
-        <label>Polarity</label>
+        <label>Polarity / Direction</label>
         <div style="display:flex;gap:6px;align-items:center;">
           <span style="font-family:monospace;" id="propPolarityText">${polarityText}</span>
           <button type="button" class="tool-btn" id="propPolarityToggle">Reverse polarity</button>
@@ -391,9 +579,158 @@ export function updatePropertiesBox() {
     document.getElementById('propValue')?.addEventListener('input', (e) => {
       if (_pushUndoState) _pushUndoState();
       const v = parseFloat(e.target.value);
-      if (!isNaN(v) && v > 0) c.value = v;
+      if (!isNaN(v) && v > 0) {
+        c.value = v;
+        if (c.type === 'POT') {
+          c.effectiveResistance = Math.max(0.001, c.value * (c.wiper !== undefined ? c.wiper : 0.5));
+        } else if (c.type === 'TH') {
+          const Tk = (c.temperature !== undefined ? c.temperature : 25) + 273.15;
+          c.effectiveResistance = Math.max(0.1, c.value * Math.exp((c.beta || 3950) * (1 / Tk - 1 / 298.15)));
+        } else if (c.type === 'LDR') {
+          c.darkResistance = v;
+          c.effectiveResistance = Math.max(1, c.darkResistance * Math.exp((c.lightLevel || 0.5) * Math.log((c.lightResistance || 100) / c.darkResistance)));
+        }
+      }
       if (_saveCircuitToURL) _saveCircuitToURL();
     });
+
+    // Potentiometer handlers
+    if (c.type === 'POT') {
+      const slider = document.getElementById('propWiperSlider');
+      const valInput = document.getElementById('propWiperVal');
+      const labelEl = document.getElementById('propWiperLabel');
+      const updateWiper = (pct) => {
+        if (_pushUndoState) _pushUndoState();
+        c.wiper = Math.max(0, Math.min(100, pct)) / 100;
+        c.effectiveResistance = Math.max(0.001, (c.value || 10000) * c.wiper);
+        if (slider) slider.value = pct;
+        if (valInput) valInput.value = pct;
+        if (labelEl) labelEl.textContent = `${Math.round(pct)}%`;
+        const effEl = document.getElementById('propEffectiveRText');
+        if (effEl) effEl.textContent = `${c.effectiveResistance.toFixed(1)} Ω`;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      };
+      slider?.addEventListener('input', (e) => updateWiper(parseFloat(e.target.value) || 0));
+      valInput?.addEventListener('input', (e) => updateWiper(parseFloat(e.target.value) || 0));
+    }
+
+    // Fuse handlers
+    if (c.type === 'FUSE') {
+      document.getElementById('propColdRes')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.coldResistance = v;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+      document.getElementById('propResetFuse')?.addEventListener('click', () => {
+        if (_pushUndoState) _pushUndoState();
+        c.blown = false;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+        updatePropertiesBox();
+      });
+    }
+
+    // Lamp handlers
+    if (c.type === 'LAMP') {
+      document.getElementById('propRatedPower')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.ratedPower = v;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+      document.getElementById('propLampColor')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        c.lampColor = e.target.value;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+    }
+
+    // Thermistor handlers
+    if (c.type === 'TH') {
+      const tempSlider = document.getElementById('propTempSlider');
+      const tempInput = document.getElementById('propTempInput');
+      const tempLabel = document.getElementById('propTempLabel');
+      const updateTemp = (tempVal) => {
+        if (_pushUndoState) _pushUndoState();
+        c.temperature = tempVal;
+        const Tk = c.temperature + 273.15;
+        c.effectiveResistance = Math.max(0.1, (c.value || 10000) * Math.exp((c.beta || 3950) * (1 / Tk - 1 / 298.15)));
+        if (tempSlider) tempSlider.value = tempVal;
+        if (tempInput) tempInput.value = tempVal;
+        if (tempLabel) tempLabel.textContent = `${tempVal} °C`;
+        const effEl = document.getElementById('propEffectiveRText');
+        if (effEl) effEl.textContent = `${c.effectiveResistance.toFixed(1)} Ω`;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      };
+      tempSlider?.addEventListener('input', (e) => updateTemp(parseFloat(e.target.value) || 0));
+      tempInput?.addEventListener('input', (e) => updateTemp(parseFloat(e.target.value) || 0));
+      document.getElementById('propBeta')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.beta = v;
+        const Tk = (c.temperature !== undefined ? c.temperature : 25) + 273.15;
+        c.effectiveResistance = Math.max(0.1, (c.value || 10000) * Math.exp((c.beta || 3950) * (1 / Tk - 1 / 298.15)));
+        const effEl = document.getElementById('propEffectiveRText');
+        if (effEl) effEl.textContent = `${c.effectiveResistance.toFixed(1)} Ω`;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+    }
+
+    // Photoresistor (LDR) handlers
+    if (c.type === 'LDR') {
+      const lightSlider = document.getElementById('propLightSlider');
+      const lightInput = document.getElementById('propLightInput');
+      const lightLabel = document.getElementById('propLightLabel');
+      const updateLight = (lightPct) => {
+        if (_pushUndoState) _pushUndoState();
+        c.lightLevel = Math.max(0, Math.min(100, lightPct)) / 100;
+        const darkR = c.darkResistance || c.value || 1e6;
+        const lightR = c.lightResistance || 100;
+        c.effectiveResistance = Math.max(1, darkR * Math.exp(c.lightLevel * Math.log(lightR / darkR)));
+        if (lightSlider) lightSlider.value = lightPct;
+        if (lightInput) lightInput.value = lightPct;
+        if (lightLabel) lightLabel.textContent = `${Math.round(lightPct)}%`;
+        const effEl = document.getElementById('propEffectiveRText');
+        if (effEl) effEl.textContent = `${c.effectiveResistance.toFixed(1)} Ω`;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      };
+      lightSlider?.addEventListener('input', (e) => updateLight(parseFloat(e.target.value) || 0));
+      lightInput?.addEventListener('input', (e) => updateLight(parseFloat(e.target.value) || 0));
+      document.getElementById('propLightRes')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.lightResistance = v;
+        const darkR = c.darkResistance || c.value || 1e6;
+        c.effectiveResistance = Math.max(1, darkR * Math.exp((c.lightLevel || 0.5) * Math.log((c.lightResistance || 100) / darkR)));
+        const effEl = document.getElementById('propEffectiveRText');
+        if (effEl) effEl.textContent = `${c.effectiveResistance.toFixed(1)} Ω`;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+    }
+
+    // Relay handlers
+    if (c.type === 'RELAY') {
+      document.getElementById('propContactType')?.addEventListener('change', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        c.contactType = e.target.value;
+        c.closed = c.isEnergized ? (c.contactType === 'NO') : (c.contactType === 'NC');
+        if (_saveCircuitToURL) _saveCircuitToURL();
+        updatePropertiesBox();
+      });
+      document.getElementById('propCoilRes')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.coilResistance = v;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+      document.getElementById('propRelayToggle')?.addEventListener('click', () => {
+        if (_pushUndoState) _pushUndoState();
+        c.isEnergized = !c.isEnergized;
+        c.closed = c.isEnergized ? (c.contactType === 'NO') : (c.contactType === 'NC');
+        if (_saveCircuitToURL) _saveCircuitToURL();
+        updatePropertiesBox();
+      });
+    }
 
     if (c.type === 'ACV') {
       document.getElementById('propFrequency')?.addEventListener('input', (e) => {
@@ -470,6 +807,45 @@ export function updateSelectedPropertiesDynamics() {
     if (elVolt) elVolt.textContent = `V1: ${v1}V | V2: ${v2}V (ΔV: ${diff}V)`;
     const elCurr = document.getElementById('propCurrText');
     if (elCurr) elCurr.textContent = formatCurrent(c.current || 0);
+
+    if (c.type === 'VM') {
+      const elVM = document.getElementById('propVoltMeasureText');
+      if (elVM) {
+        const vmVolt = (c.n1.vx != null && c.n2.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(3);
+        elVM.textContent = `${vmVolt} V`;
+      }
+    }
+    if (c.type === 'AM') {
+      const elAM = document.getElementById('propCurrMeasureText');
+      if (elAM) elAM.textContent = formatCurrent(c.current || 0);
+    }
+    if (c.type === 'LAMP') {
+      const elPower = document.getElementById('propPowerText');
+      if (elPower) elPower.textContent = `${(c.power || 0).toFixed(2)} W`;
+      const elBright = document.getElementById('propBrightnessText');
+      if (elBright) elBright.textContent = `${Math.round((c.displayBrightness || 0) * 100)}%`;
+    }
+    if (c.type === 'FUSE') {
+      const elFuse = document.getElementById('propFuseStatus');
+      if (elFuse) {
+        elFuse.textContent = c.blown ? 'BLOWN / OPEN' : 'INTACT';
+        elFuse.style.color = c.blown ? '#e74c3c' : '#2ecc71';
+      }
+      const elReset = document.getElementById('propResetFuseContainer');
+      if (elReset) elReset.style.display = c.blown ? '' : 'none';
+    }
+    if (c.type === 'RELAY') {
+      const elRelay = document.getElementById('propRelayStatus');
+      if (elRelay) {
+        elRelay.textContent = c.isEnergized ? 'ENERGIZED' : 'DE-ENERGIZED';
+        elRelay.style.color = c.isEnergized ? '#2ecc71' : '#888';
+      }
+      const elContact = document.getElementById('propRelayContact');
+      if (elContact) {
+        elContact.textContent = `(${c.closed ? 'CLOSED' : 'OPEN'})`;
+        elContact.style.color = c.closed ? '#2ecc71' : '#e74c3c';
+      }
+    }
     if (c.type === 'ACV') {
       const elInstV = document.getElementById('propInstV');
       if (elInstV) {
@@ -531,6 +907,14 @@ export function hideAllToolInputs() {
   }
   const freqEl = document.getElementById('acvFrequency');
   if (freqEl) freqEl.style.display = 'none';
+  const wiperEl = document.getElementById('potentiometerWiper');
+  if (wiperEl) wiperEl.style.display = 'none';
+  const lampPwrEl = document.getElementById('lampRatedPower');
+  if (lampPwrEl) lampPwrEl.style.display = 'none';
+  const thTempEl = document.getElementById('thermistorTemp');
+  if (thTempEl) thTempEl.style.display = 'none';
+  const ldrLightEl = document.getElementById('ldrLightLevel');
+  if (ldrLightEl) ldrLightEl.style.display = 'none';
 }
 
 export function resetToolButtons() {
@@ -584,7 +968,17 @@ export function setMode(mode) {
     CREATE_DIODE: 'addDiode',
     CREATE_LED: 'addLED',
     CREATE_SWITCH: 'addSwitch',
-    CREATE_GROUND: "addGround"
+    CREATE_GROUND: "addGround",
+    CREATE_POT: 'addPotentiometer',
+    CREATE_BATTERY: 'addBattery',
+    CREATE_CURRENT_SOURCE: 'addCurrentSource',
+    CREATE_VOLTMETER: 'addVoltmeter',
+    CREATE_AMMETER: 'addAmmeter',
+    CREATE_FUSE: 'addFuse',
+    CREATE_LAMP: 'addLamp',
+    CREATE_THERMISTOR: 'addThermistor',
+    CREATE_PHOTORESISTOR: 'addPhotoresistor',
+    CREATE_RELAY: 'addRelay'
   };
   const toolMap = {
     CREATE_RESISTOR: 'R',
@@ -595,7 +989,17 @@ export function setMode(mode) {
     CREATE_DIODE: 'D',
     CREATE_LED: 'LED',
     CREATE_SWITCH: 'SW',
-    CREATE_GROUND: "GND"
+    CREATE_GROUND: "GND",
+    CREATE_POT: 'POT',
+    CREATE_BATTERY: 'BAT',
+    CREATE_CURRENT_SOURCE: 'ISRC',
+    CREATE_VOLTMETER: 'VM',
+    CREATE_AMMETER: 'AM',
+    CREATE_FUSE: 'FUSE',
+    CREATE_LAMP: 'LAMP',
+    CREATE_THERMISTOR: 'TH',
+    CREATE_PHOTORESISTOR: 'LDR',
+    CREATE_RELAY: 'RELAY'
   };
 
   editorState.activeTool = toolMap[mode] || null;
@@ -615,6 +1019,18 @@ export function setMode(mode) {
     if (editorState.activeTool === 'ACV') {
       const freqEl = document.getElementById('acvFrequency');
       if (freqEl) freqEl.style.display = 'inline-block';
+    } else if (editorState.activeTool === 'POT') {
+      const wiperEl = document.getElementById('potentiometerWiper');
+      if (wiperEl) wiperEl.style.display = 'inline-block';
+    } else if (editorState.activeTool === 'LAMP') {
+      const lampPwrEl = document.getElementById('lampRatedPower');
+      if (lampPwrEl) lampPwrEl.style.display = 'inline-block';
+    } else if (editorState.activeTool === 'TH') {
+      const thTempEl = document.getElementById('thermistorTemp');
+      if (thTempEl) thTempEl.style.display = 'inline-block';
+    } else if (editorState.activeTool === 'LDR') {
+      const ldrLightEl = document.getElementById('ldrLightLevel');
+      if (ldrLightEl) ldrLightEl.style.display = 'inline-block';
     }
   }
 }
@@ -645,20 +1061,6 @@ export function setupToolButton(id, toolMode) {
 // ===== UI Initialization Routine =====
 export function initUI(callbacks) {
   bindUICallbacks(callbacks);
-
-  // LHS Display Settings Panel Handlers
-  const lhsHeader = dom.lhsHeader;
-  const lhsContent = dom.lhsContent;
-  const lhsToggleBtn = dom.lhsToggleBtn;
-
-  if (lhsHeader && lhsContent) {
-    lhsHeader.addEventListener('click', () => {
-      lhsContent.classList.toggle('collapsed');
-      if (lhsToggleBtn) {
-        lhsToggleBtn.textContent = lhsContent.classList.contains('collapsed') ? '▶' : '▼';
-      }
-    });
-  }
 
   const ds = editorState.displaySettings;
   const chkVoltageColoring = dom.chkUseVoltageColoring;
@@ -693,15 +1095,6 @@ export function initUI(callbacks) {
     chkWireCurrents.addEventListener('change', () => { ds.showWireCurrents = chkWireCurrents.checked; });
   }
 
-  // Pause / Resume Button
-  const pauseBtn = dom.pauseBtn;
-  if (pauseBtn) {
-    pauseBtn.addEventListener('click', () => {
-      runtimeState.paused = !runtimeState.paused;
-      pauseBtn.textContent = runtimeState.paused ? '▶ Resume' : '⏸ Pause';
-      pauseBtn.classList.toggle('active', runtimeState.paused);
-    });
-  }
 
   const hamburgerBtn = dom.hamburgerBtn;
   const saveMenu = dom.saveMenu;
@@ -810,9 +1203,85 @@ export function initUI(callbacks) {
     });
   }
 
+  // RHS Component Library Panel Handlers
+  const rhsPanel = dom.rhsPanel;
+  const rhsHeader = dom.rhsHeader;
+  const rhsContent = dom.rhsContent;
+
+  if (rhsHeader && rhsPanel && rhsContent) {
+    rhsHeader.addEventListener('click', () => {
+      rhsPanel.classList.toggle('collapsed');
+      rhsContent.classList.toggle('collapsed');
+    });
+  }
+
+  // Simulation Controls: Play, Pause, Step Forward, Step Backward
+  const playBtn = dom.playBtn;
+  const pauseBtn = dom.pauseBtn;
+  const stepBtn = dom.stepBtn;
+  const stepBackBtn = dom.stepBackBtn;
+  const stepIntervalInput = dom.stepIntervalInput;
+  const simStatus = dom.simStatus;
+
+  function updateSimUIState() {
+    const isPaused = runtimeState.paused;
+    if (playBtn) playBtn.classList.toggle('active', !isPaused);
+    if (pauseBtn) pauseBtn.classList.toggle('active', isPaused);
+    if (simStatus) {
+      simStatus.textContent = isPaused ? 'PAUSED' : 'RUNNING';
+      simStatus.classList.toggle('paused', isPaused);
+    }
+  }
+
+  function getStepMultiplier() {
+    if (!stepIntervalInput) return 1;
+    const val = parseInt(stepIntervalInput.value, 10);
+    return isNaN(val) || val < 1 ? 1 : val;
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      runtimeState.paused = false;
+      updateSimUIState();
+    });
+  }
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      runtimeState.paused = true;
+      updateSimUIState();
+    });
+  }
+
+  if (stepBtn) {
+    stepBtn.addEventListener('click', () => {
+      const mult = getStepMultiplier();
+      stepSimulation(showSolveError, mult);
+      updateSimUIState();
+    });
+  }
+
+  if (stepBackBtn) {
+    stepBackBtn.addEventListener('click', () => {
+      const mult = getStepMultiplier();
+      stepSimulationBackward(showSolveError, mult);
+      updateSimUIState();
+    });
+  }
+
+  updateSimUIState();
+
   const selectBtn = dom.selectBtn;
   if (selectBtn) {
     selectBtn.addEventListener('click', () => setMode('SELECT'));
+  }
+
+  const panBtn = dom.panToolBtn;
+  if (panBtn) {
+    panBtn.addEventListener('click', () => {
+      if (editorState.mode === 'PAN') setMode('SELECT');
+      else setMode('PAN');
+    });
   }
 
   const addNodeBtn = dom.addNodeBtn;
@@ -829,13 +1298,23 @@ export function initUI(callbacks) {
   }
 
   setupToolButton('addResistor', 'CREATE_RESISTOR');
+  setupToolButton('addPotentiometer', 'CREATE_POT');
   setupToolButton('addVoltage', 'CREATE_VOLTAGE');
+  setupToolButton('addBattery', 'CREATE_BATTERY');
   setupToolButton('addACV', 'CREATE_ACV');
+  setupToolButton('addCurrentSource', 'CREATE_CURRENT_SOURCE');
   setupToolButton('addWire', 'CREATE_WIRE');
   setupToolButton('addCapacitor', 'CREATE_CAPACITOR');
   setupToolButton('addDiode', 'CREATE_DIODE');
   setupToolButton('addLED', 'CREATE_LED');
   setupToolButton('addSwitch', 'CREATE_SWITCH');
+  setupToolButton('addFuse', 'CREATE_FUSE');
+  setupToolButton('addRelay', 'CREATE_RELAY');
+  setupToolButton('addVoltmeter', 'CREATE_VOLTMETER');
+  setupToolButton('addAmmeter', 'CREATE_AMMETER');
+  setupToolButton('addLamp', 'CREATE_LAMP');
+  setupToolButton('addThermistor', 'CREATE_THERMISTOR');
+  setupToolButton('addPhotoresistor', 'CREATE_PHOTORESISTOR');
   setupToolButton('addGround', 'CREATE_GROUND');
 
   const newCircuitBtn = dom.newCircuitBtn;
@@ -856,6 +1335,13 @@ export function initUI(callbacks) {
 
       updatePropertiesBox();
       if (_saveCircuitToURL) _saveCircuitToURL();
+    });
+  }
+
+  const propCloseBtn = document.getElementById('propertiesCloseBtn');
+  if (propCloseBtn) {
+    propCloseBtn.addEventListener('click', () => {
+      clearSelection();
     });
   }
 

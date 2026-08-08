@@ -2296,47 +2296,53 @@ function gaussSolve(A, b) {
 
 // ===== Rendering =====
 function voltageColor(v) {
-  const eps = 1e-3; // treat tiny values as 0
-
+  if (v === undefined || v === null || isNaN(v)) return 'rgb(200, 200, 200)';
+  const eps = 1e-3;
   if (Math.abs(v) < eps) {
-    // neutral / ~0 V → light gray
     return 'rgb(200, 200, 200)';
   }
-  if (v < 0) {
-    // negative → blue
-    return 'rgb(0, 0, 255)';
+  const maxV = 120;
+  const absV = Math.abs(v);
+  const t = Math.min(1, Math.pow(absV / maxV, 0.65));
+
+  const r0 = 200, g0 = 200, b0 = 200;
+
+  if (v > 0) {
+    const r = Math.round(r0 + (255 - r0) * t);
+    const g = Math.round(g0 * (1 - t));
+    const b = Math.round(b0 * (1 - t));
+    return `rgb(${r}, ${g}, ${b})`;
+  } else {
+    const r = Math.round(r0 * (1 - t));
+    const g = Math.round(g0 * (1 - t));
+    const b = Math.round(b0 + (255 - b0) * t);
+    return `rgb(${r}, ${g}, ${b})`;
   }
-  // positive → red
-  return 'rgb(255, 0, 0)';
 }
 
 function wireVoltageColor(v) {
-  const maxV = 50;
-  const t = Math.max(-1, Math.min(1, v / maxV));
-
-  let r = 180;
-  let g = 180;
-  let b = 180;
-
-  let colorP = [5, 0, 0];
-  let colorN = [0, 0, 5];
-
-  if (t > 0) {
-    r += 75 * t * colorP[0];
-    g += 75 * t * colorP[1];
-    b += 75 * t * colorP[2];
-
-  } else {
-    r += 75 * (-t) * colorN[0];
-    g += 75 * (-t) * colorN[1];
-    b += 75 * (-t) * colorN[2];
+  if (v === undefined || v === null || isNaN(v)) return [180, 180, 180];
+  const eps = 1e-3;
+  if (Math.abs(v) < eps) {
+    return [180, 180, 180];
   }
-  let normCol = normalize(r, g, b);
-  r = normCol[0] * 255;
-  g = normCol[1] * 255;
-  b = normCol[2] * 255;
+  const maxV = 120;
+  const absV = Math.abs(v);
+  const t = Math.min(1, Math.pow(absV / maxV, 0.65));
 
-  return [r, g, b];
+  const r0 = 180, g0 = 180, b0 = 180;
+
+  if (v > 0) {
+    const r = Math.round(r0 + (255 - r0) * t);
+    const g = Math.round(g0 * (1 - 0.85 * t));
+    const b = Math.round(b0 * (1 - 0.85 * t));
+    return [r, g, b];
+  } else {
+    const r = Math.round(r0 * (1 - 0.85 * t));
+    const g = Math.round(g0 * (1 - 0.85 * t));
+    const b = Math.round(b0 + (255 - b0) * t);
+    return [r, g, b];
+  }
 }
 
 function drawSelectionOutline(obj) {
@@ -2651,8 +2657,6 @@ function draw() {
 
   // Component lines
   for (const c of state.components) {
-    let wireColor = "#888";
-
     const grad = ctx.createLinearGradient(
       c.n1.x,
       c.n1.y,
@@ -2662,25 +2666,21 @@ function draw() {
 
     let col1 = wireVoltageColor(c.n1.vx);
     let col2 = wireVoltageColor(c.n2.vx);
-    let avgCol = [
-      (col1[0] + col2[0]) / 2,
-      (col1[1] + col2[1]) / 2,
-      (col1[2] + col2[2]) / 2
-    ];
-
     grad.addColorStop(0, `rgb(${col1[0]}, ${col1[1]}, ${col1[2]})`);
     grad.addColorStop(1, `rgb(${col2[0]}, ${col2[1]}, ${col2[2]})`);
 
-    const currentGlow = Math.min(Math.abs(c.current) * 0.2, 1);
+    const current = c.current || 0;
+    const absI = Math.abs(current);
+    const originNode = current >= 0 ? c.n1 : c.n2;
+    const originVx = originNode ? (originNode.vx || 0) : 0;
+    const originCol = wireVoltageColor(originVx);
 
-    ctx.shadowBlur = 5 * Math.pow(state.scale, 1.0);
-    // ctx.shadowColor = `rgb(${avgCol[0]}, ${avgCol[1]}, ${avgCol[2]})`;
-    const avgV =
-      ((c.n1.vx || 0) +
-        (c.n2.vx || 0)) * 0.5;
+    const glowIntensity = absI < 1e-9 ? 0 : Math.min(1, Math.log10(absI * 1000 + 1) * 0.35);
+    const shadowBlur = (absI < 1e-9 ? 2 : 4 + glowIntensity * 16) * state.scale;
+    const glowAlpha = absI < 1e-9 ? 0.25 : Math.min(1, 0.4 + glowIntensity * 0.6);
 
-    let avgVCol = wireVoltageColor(avgV);
-    ctx.shadowColor = `rgba(${avgVCol[0]}, ${avgVCol[1]}, ${avgVCol[2]}, ${currentGlow * 10})`;
+    ctx.shadowBlur = shadowBlur;
+    ctx.shadowColor = `rgba(${originCol[0]}, ${originCol[1]}, ${originCol[2]}, ${glowAlpha})`;
 
     ctx.strokeStyle = c.hasError ? '#e74c3c' : grad;
     ctx.lineWidth = c.hasError ? 3 : 2;
@@ -2700,10 +2700,41 @@ function draw() {
   // Nodes
   for (const n of state.nodes) {
     const color = n.hasError ? '#e74c3c' : (n.vx !== undefined ? voltageColor(n.vx) : '#fff');
+
+    let maxI = 0;
+    let originVx = n.vx || 0;
+
+    for (const c of state.components) {
+      const cI = c.current || 0;
+      const absCI = Math.abs(cI);
+      if (c.n1 === n || c.n2 === n) {
+        if (absCI > maxI) {
+          maxI = absCI;
+          if (c.n2 === n && cI > 0) {
+            originVx = c.n1.vx || 0;
+          } else if (c.n1 === n && cI < 0) {
+            originVx = c.n2.vx || 0;
+          } else {
+            originVx = n.vx || 0;
+          }
+        }
+      }
+    }
+
+    const nodeGlowIntensity = maxI < 1e-9 ? 0 : Math.min(1, Math.log10(maxI * 1000 + 1) * 0.35);
+    const nodeShadowBlur = (maxI < 1e-9 ? 2 : 5 + nodeGlowIntensity * 18) * state.scale;
+    const originCol = wireVoltageColor(originVx);
+    const nodeGlowColor = `rgba(${originCol[0]}, ${originCol[1]}, ${originCol[2]}, ${maxI < 1e-9 ? 0.25 : 0.45 + nodeGlowIntensity * 0.55})`;
+
+    ctx.shadowBlur = nodeShadowBlur;
+    ctx.shadowColor = nodeGlowColor;
+
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
+
     ctx.fillStyle = n.hasError ? '#e74c3c' : '#eee';
     ctx.font = '12px monospace';
     ctx.fillText(`V=${n.vx?.toFixed(2) ?? '-'}V`, n.x + 10, n.y - 10);

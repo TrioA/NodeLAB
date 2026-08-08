@@ -16,12 +16,12 @@
     <link rel="icon" type="image/png" href="../images/favicon.png">
     <script src="https://mrdoob.github.io/stats.js/build/stats.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 </head>
 
 <body>
     <div id="initial-fade">
         <span id="big-title">
-            <!-- NODE LAB<br>EDITOR -->
             <img src="../images/favicon.png">
         </span>
     </div>
@@ -31,7 +31,7 @@
         </div>
     </a>
     <div id="left-topbar" class="toolbar menu-wrapper">
-        <button id="settingsBtn" class="hamburger-btn">⚙</button>
+        <button id="settingsBtn" class="hamburger-btn" title="Settings"><i data-lucide="settings"></i></button>
 
         <div class="settings-menu" id="settingsMenu">
 
@@ -71,143 +71,311 @@
 
                 </div>
 
+                <div class="settings-group" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-secondary);">
+                    <label style="margin-bottom:8px;">
+                        <span>Display Settings</span>
+                    </label>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label class="lhs-checkbox-label">
+                            <input type="checkbox" id="chkUseVoltageColoring" checked>
+                            <span>Use Voltage-based Coloring</span>
+                        </label>
+                        <label class="lhs-checkbox-label">
+                            <input type="checkbox" id="chkShowNodeVoltages" checked>
+                            <span>Show Node Voltages</span>
+                        </label>
+                        <label class="lhs-checkbox-label">
+                            <input type="checkbox" id="chkShowComponentNames" checked>
+                            <span>Show Component Names</span>
+                        </label>
+                        <label class="lhs-checkbox-label">
+                            <input type="checkbox" id="chkShowComponentValues" checked>
+                            <span>Show Component Values</span>
+                        </label>
+                        <label class="lhs-checkbox-label">
+                            <input type="checkbox" id="chkShowCurrentFlow">
+                            <span>Show Current Flow Animation</span>
+                        </label>
+                        <label class="lhs-checkbox-label">
+                            <input type="checkbox" id="chkShowWireCurrents">
+                            <span>Show Wire Currents</span>
+                        </label>
+                    </div>
+                </div>
+
             </div>
 
         </div>
     </div>
-    <div id="lhsPanel" class="lhs-panel">
-        <div id="lhsHeader" class="lhs-panel-header">
-            <span>👁 Settings</span>
-            <button id="lhsToggleBtn" class="lhs-panel-toggle-btn">▶</button>
+
+    <!-- RHS Component Library Panel Drawer -->
+    <div id="rhsPanel" class="rhs-panel collapsed">
+        <div id="rhsHeader" class="drawer-handle rhs-handle" title="Toggle Component Library">
+            <span><i data-lucide="zap"></i> Component Library</span>
         </div>
-        <div id="lhsContent" class="lhs-panel-content collapsed">
-            <label class="lhs-checkbox-label">
-                <input type="checkbox" id="chkUseVoltageColoring" checked>
-                <span>Use Voltage-based Coloring</span>
-            </label>
-            <label class="lhs-checkbox-label">
-                <input type="checkbox" id="chkShowNodeVoltages" checked>
-                <span>Show Node Voltages</span>
-            </label>
-            <label class="lhs-checkbox-label">
-                <input type="checkbox" id="chkShowComponentNames" checked>
-                <span>Show Component Names</span>
-            </label>
-            <label class="lhs-checkbox-label">
-                <input type="checkbox" id="chkShowComponentValues" checked>
-                <span>Show Component Values</span>
-            </label>
-            <label class="lhs-checkbox-label">
-                <input type="checkbox" id="chkShowCurrentFlow">
-                <span>Show Current Flow Animation</span>
-            </label>
+        <div id="rhsContent" class="rhs-drawer-content collapsed">
+            <div class="drawer-title">Component Library</div>
+            <div class="comp-category">
+                <div class="comp-category-title">Basic Connections</div>
+                <div class="comp-grid">
+                    <div class="tool-wrapper">
+                        <button id="addNodeBtn" class="tool-btn comp-btn" title="Create Node">
+                            <span class="comp-icon"><i data-lucide="circle-dot"></i></span> Node
+                        </button>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addWire" class="tool-btn comp-btn" title="Place Wire">
+                            <span class="comp-icon"><i data-lucide="minus"></i></span> Wire
+                        </button>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addGround" class="tool-btn comp-btn" title="Place Ground">
+                            <span class="comp-icon"><i data-lucide="arrow-down-to-line"></i></span> Ground
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comp-category">
+                <div class="comp-category-title">Passives</div>
+                <div class="comp-grid">
+                    <div class="tool-wrapper">
+                        <button id="addResistor" class="tool-btn comp-btn" title="Place Resistor">
+                            <span class="comp-icon"><i data-lucide="activity"></i></span> Resistor
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="resistorValue">Resistance (Ω)</label>
+                            <input id="resistorValue" type="number" value="1000" step="any" min="0.0001" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addPotentiometer" class="tool-btn comp-btn" title="Place Potentiometer">
+                            <span class="comp-icon"><i data-lucide="sliders"></i></span> Potentiometer
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="potentiometerValue">Total Resistance (Ω)</label>
+                            <input id="potentiometerValue" type="number" value="10000" step="any" min="0.0001" />
+                            <label for="potentiometerWiper" style="margin-top:6px;">Wiper (%)</label>
+                            <input id="potentiometerWiper" type="number" value="50" min="0" max="100" step="1" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addCapacitor" class="tool-btn comp-btn" title="Place Capacitor">
+                            <span class="comp-icon"><i data-lucide="pause"></i></span> Capacitor
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="capacitorValue">Capacitance (F)</label>
+                            <input id="capacitorValue" type="number" value="1e-6" step="any" min="1e-12" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addThermistor" class="tool-btn comp-btn" title="Place Thermistor (NTC)">
+                            <span class="comp-icon"><i data-lucide="thermometer"></i></span> Thermistor
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="thermistorValue">Nominal R at 25°C (Ω)</label>
+                            <input id="thermistorValue" type="number" value="10000" step="any" min="0.1" />
+                            <label for="thermistorTemp" style="margin-top:6px;">Temperature (°C)</label>
+                            <input id="thermistorTemp" type="number" value="25" min="-40" max="150" step="1" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addPhotoresistor" class="tool-btn comp-btn" title="Place Photoresistor (LDR)">
+                            <span class="comp-icon"><i data-lucide="sun"></i></span> Photoresistor
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="ldrValue">Dark Resistance (Ω)</label>
+                            <input id="ldrValue" type="number" value="1000000" step="any" min="1" />
+                            <label for="ldrLightLevel" style="margin-top:6px;">Light Level (%)</label>
+                            <input id="ldrLightLevel" type="number" value="50" min="0" max="100" step="1" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comp-category">
+                <div class="comp-category-title">Power Sources</div>
+                <div class="comp-grid">
+                    <div class="tool-wrapper">
+                        <button id="addVoltage" class="tool-btn comp-btn" title="Place DC Voltage Source">
+                            <span class="comp-icon"><i data-lucide="battery-charging"></i></span> DC Voltage
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="voltageValue">Voltage (V)</label>
+                            <input id="voltageValue" type="number" value="5" step="any" min="0.0001" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addBattery" class="tool-btn comp-btn" title="Place DC Battery">
+                            <span class="comp-icon"><i data-lucide="battery"></i></span> Battery
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="batteryValue">Voltage (V)</label>
+                            <input id="batteryValue" type="number" value="9" step="any" min="0.0001" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addACV" class="tool-btn comp-btn" title="Place AC Voltage">
+                            <span class="comp-icon"><i data-lucide="waves"></i></span> AC Voltage
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="acVoltageValue">AC Voltage (V)</label>
+                            <input id="acVoltageValue" type="number" value="5" step="any" min="0.0001" />
+                            <label for="acvFrequency" style="margin-top:6px;">Frequency (Hz)</label>
+                            <input id="acvFrequency" type="number" value="50" step="any" min="0.001" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addCurrentSource" class="tool-btn comp-btn" title="Place Current Source">
+                            <span class="comp-icon"><i data-lucide="repeat"></i></span> Current Source
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="currentSourceValue">Current (A)</label>
+                            <input id="currentSourceValue" type="number" value="0.01" step="any" min="0.000001" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comp-category">
+                <div class="comp-category-title">Semiconductors</div>
+                <div class="comp-grid">
+                    <div class="tool-wrapper">
+                        <button id="addDiode" class="tool-btn comp-btn" title="Place Diode">
+                            <span class="comp-icon"><i data-lucide="play"></i></span> Diode
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="diodeValue">Forward Voltage (V)</label>
+                            <input id="diodeValue" type="number" value="0.7" step="any" min="0.001" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addLED" class="tool-btn comp-btn" title="Place LED">
+                            <span class="comp-icon"><i data-lucide="lightbulb"></i></span> LED
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="ledValue">Forward Voltage (V)</label>
+                            <input id="ledValue" type="number" value="1.7" step="any" min="0.001" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comp-category">
+                <div class="comp-category-title">Switches & Protection</div>
+                <div class="comp-grid">
+                    <div class="tool-wrapper">
+                        <button id="addSwitch" class="tool-btn comp-btn" title="Place Switch">
+                            <span class="comp-icon"><i data-lucide="toggle-left"></i></span> Switch
+                        </button>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addFuse" class="tool-btn comp-btn" title="Place Fuse">
+                            <span class="comp-icon"><i data-lucide="shield-alert"></i></span> Fuse
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="fuseValue">Current Rating (A)</label>
+                            <input id="fuseValue" type="number" value="1" step="any" min="0.001" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addRelay" class="tool-btn comp-btn" title="Place Relay">
+                            <span class="comp-icon"><i data-lucide="git-fork"></i></span> Relay
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="relayValue">Activation Threshold (V)</label>
+                            <input id="relayValue" type="number" value="5" step="any" min="0.1" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comp-category">
+                <div class="comp-category-title">Meters & Output</div>
+                <div class="comp-grid">
+                    <div class="tool-wrapper">
+                        <button id="addVoltmeter" class="tool-btn comp-btn" title="Place Voltmeter">
+                            <span class="comp-icon"><i data-lucide="gauge"></i></span> Voltmeter
+                        </button>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addAmmeter" class="tool-btn comp-btn" title="Place Ammeter">
+                            <span class="comp-icon"><i data-lucide="timer"></i></span> Ammeter
+                        </button>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addLamp" class="tool-btn comp-btn" title="Place Lamp / Light Bulb">
+                            <span class="comp-icon"><i data-lucide="sparkles"></i></span> Lamp / Bulb
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="lampValue">Resistance (Ω)</label>
+                            <input id="lampValue" type="number" value="50" step="any" min="0.1" />
+                            <label for="lampRatedPower" style="margin-top:6px;">Rated Power (W)</label>
+                            <input id="lampRatedPower" type="number" value="1.0" step="any" min="0.01" />
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
+
+    <!-- Main Mode Toolbar (Top Centered) -->
     <header class="toolbar" id="toolbar">
-        <div class="toolbar-drag-handle" title="Drag to move toolbar">⋮⋮</div>
+        <div class="toolbar-drag-handle" title="Drag to move toolbar"><i data-lucide="grip-vertical"></i></div>
         <div class="menu-wrapper">
-            <button id="hamburgerBtn" class="hamburger-btn">☰</button>
+            <button id="hamburgerBtn" class="hamburger-btn" title="File Menu"><i data-lucide="menu"></i></button>
 
             <div class="save-menu" id="saveMenu">
                 <div class="save-menu-header">File</div>
-
-                <button id="newCircuitBtn" class="save-item">+ New Circuit</button>
-                <button id="saveCircuitBtn" class="save-item">+ Save Current Circuit</button>
-
+                <button id="newCircuitBtn" class="save-item"><i data-lucide="file-plus" style="width:16px;height:16px;"></i> New Circuit</button>
+                <button id="saveCircuitBtn" class="save-item"><i data-lucide="save" style="width:16px;height:16px;"></i> Save Current Circuit</button>
                 <div class="save-submenu-wrapper">
-
-                    <button id="savedCircuitsBtn" class="save-item">
-                        Saved Circuits ▸
-                    </button>
-
-                    <div class="save-submenu" id="saveList">
-                        <!-- save entries injected here -->
-                    </div>
-
+                    <button id="savedCircuitsBtn" class="save-item"><i data-lucide="folder-open" style="width:16px;height:16px;"></i> Saved Circuits <i data-lucide="chevron-right" style="width:14px;height:14px;"></i></button>
+                    <div class="save-submenu" id="saveList"></div>
                 </div>
             </div>
         </div>
 
-        <div class="toolbar-brand">NodeLab</div>
         <div class="toolbar-divider"></div>
 
         <nav class="toolbar-group" aria-label="Tools">
             <div class="tool-wrapper">
-                <button id="pauseBtn" class="tool-btn" title="Pause / Resume Simulation (Space)">⏸ Pause</button>
-            </div>
-            <div class="toolbar-divider"></div>
-            <div class="tool-wrapper">
-                <button id="selectBtn" class="tool-btn active" title="Select & Move">Select</button>
+                <button id="selectBtn" class="tool-btn active" title="Select & Move (1)">
+                    <span class="comp-icon"><i data-lucide="mouse-pointer"></i></span>
+                </button>
             </div>
             <div class="tool-wrapper">
-                <button id="panToolBtn" class="tool-btn" title="Pan Canvas">Pan</button>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addNodeBtn" class="tool-btn" title="Create Node">Node</button>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addWire" class="tool-btn" title="Place Wire">Wire</button>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addGround" class="tool-btn" title="Place Ground">Ground</button>
-            </div>
-            <div class="toolbar-divider"></div>
-            <div class="tool-wrapper">
-                <button id="addVoltage" class="tool-btn" title="Place Voltage Source">Voltage</button>
-                <div class="tool-dropdown">
-                    <label for="voltageValue">Voltage (V)</label>
-                    <input id="voltageValue" type="number" value="5" step="any" min="0.0001" />
-                </div>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addResistor" class="tool-btn" title="Place Resistor">Resistor</button>
-                <div class="tool-dropdown">
-                    <label for="resistorValue">Resistance (Ω)</label>
-                    <input id="resistorValue" type="number" value="1000" step="any" min="0.0001" />
-                </div>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addCapacitor" class="tool-btn" title="Place Capacitor">Capacitor</button>
-                <div class="tool-dropdown">
-                    <label for="capacitorValue">Capacitance (F)</label>
-                    <input id="capacitorValue" type="number" value="1e-6" step="any" min="1e-12" />
-                </div>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addDiode" class="tool-btn" title="Place Diode">Diode</button>
-                <div class="tool-dropdown">
-                    <label for="diodeValue">Forward Voltage (V)</label>
-                    <input id="diodeValue" type="number" value="0.7" step="any" min="0.001" />
-                </div>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addLED" class="tool-btn" title="Place LED">LED</button>
-                <div class="tool-dropdown">
-                    <label for="ledValue">Forward Voltage (V)</label>
-                    <input id="ledValue" type="number" value="1.7" step="any" min="0.001" />
-                </div>
-            </div>
-            <!-- Add ACV -->
-            <div class="tool-wrapper">
-                <button id="addACV" class="tool-btn" title="Place AC Voltage">AC Voltage</button>
-                <div class="tool-dropdown">
-                    <label for="acVoltageValue">AC Voltage (V)</label>
-                    <input id="acVoltageValue" type="number" value="5" step="any" min="0.0001" />
-                </div>
-            </div>
-            <div class="tool-wrapper">
-                <button id="addSwitch" class="tool-btn" title="Place Switch">Switch</button>
+                <button id="panToolBtn" class="tool-btn" title="Pan Canvas (Pan)">
+                    <span class="comp-icon"><i data-lucide="hand"></i></span>
+                </button>
             </div>
         </nav>
-        <div class="toolbar-drag-handle" title="Drag to move toolbar">⋮⋮</div>
+
+        <div class="toolbar-drag-handle" title="Drag to move toolbar"><i data-lucide="grip-vertical"></i></div>
     </header>
+
+    <!-- Bottom Simulation Toolbar -->
+    <div id="simToolbar" class="sim-toolbar">
+        <button id="stepBackBtn" class="sim-btn" title="Step Simulation Backward"><i data-lucide="skip-back"></i></button>
+        <button id="playBtn" class="sim-btn" title="Run / Play Simulation"><i data-lucide="play"></i></button>
+        <button id="pauseBtn" class="sim-btn" title="Pause Simulation (Space)"><i data-lucide="pause"></i></button>
+        <button id="stepBtn" class="sim-btn" title="Step Simulation Forward"><i data-lucide="skip-forward"></i></button>
+        <div class="step-interval-wrapper" style="display:flex;align-items:center;gap:4px;margin:0 4px;font-size:12px;color:var(--text-secondary);">
+            <label for="stepIntervalInput" style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);">Step:</label>
+            <div style="display:inline-flex;align-items:center;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:0 6px;">
+                <input type="number" id="stepIntervalInput" value="10" min="1" max="1000" step="1" style="width:44px;background:transparent;color:var(--text-primary);border:none;outline:none;padding:2px 0;font-family:var(--font-mono);font-size:12px;text-align:center;" title="Step Interval in milliseconds" />
+                <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);margin-left:2px;">ms</span>
+            </div>
+        </div>
+        <div class="sim-status" id="simStatus">RUNNING</div>
+    </div>
 
     <main class="canvas-container" id="canvasContainer">
         <canvas id="canvas"></canvas>
         <div class="info-bar" id="info">Nodes: 0 | Components: 0</div>
         <div class="mouse-coords" id="mouseCoords">X: 0 · Y: 0</div>
 
-        <aside class="properties-box" id="propertiesBox" style="display: none;">
+        <aside class="properties-box" id="propertiesBox" style="display: none; margin-top: 10px;">
             <h3 class="properties-title">Properties</h3>
             <div id="propertiesContent"></div>
         </aside>
@@ -216,6 +384,13 @@
     </main>
 
     <script type="module" src="../editor/canvas.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        });
+    </script>
 </body>
 
 </html>

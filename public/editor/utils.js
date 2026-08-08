@@ -4,7 +4,10 @@ export const circuitState = {
   nodes: [],          // {x,y,vx,id,electricalNode,electricalIndex,hasError}
   components: [],     // {type,n1,n2,value,id,current,hasError,name}
   nextId: 1,
-  nextTypeIds: { R: 1, V: 1, C: 1, D: 1, LED: 1, SW: 1, ACV: 1, W: 1, GND: 1 }
+  nextTypeIds: {
+    R: 1, V: 1, C: 1, D: 1, LED: 1, SW: 1, ACV: 1, W: 1, GND: 1,
+    POT: 1, BAT: 1, ISRC: 1, VM: 1, AM: 1, FUSE: 1, LAMP: 1, TH: 1, LDR: 1, RELAY: 1
+  }
 };
 
 export const editorState = {
@@ -56,7 +59,10 @@ export const runtimeState = {
 
 export function generateComponentName(type) {
   if (!circuitState.nextTypeIds) {
-    circuitState.nextTypeIds = { R: 1, V: 1, C: 1, D: 1, LED: 1, SW: 1, ACV: 1, W: 1, GND: 1 };
+    circuitState.nextTypeIds = {
+      R: 1, V: 1, C: 1, D: 1, LED: 1, SW: 1, ACV: 1, W: 1, GND: 1,
+      POT: 1, BAT: 1, ISRC: 1, VM: 1, AM: 1, FUSE: 1, LAMP: 1, TH: 1, LDR: 1, RELAY: 1
+    };
   }
   const prefix = type;
   const id = (circuitState.nextTypeIds[prefix] !== undefined) ? circuitState.nextTypeIds[prefix] : 1;
@@ -125,42 +131,53 @@ export function worldToScreen(wx, wy) {
 }
 
 export function voltageColor(v) {
+  if (v === undefined || v === null || isNaN(v)) return 'rgb(200, 200, 200)';
   const eps = 1e-3;
   if (Math.abs(v) < eps) {
     return 'rgb(200, 200, 200)';
   }
-  if (v < 0) {
-    return 'rgb(0, 0, 255)';
+  const maxV = 120;
+  const absV = Math.abs(v);
+  const t = Math.min(1, Math.pow(absV / maxV, 0.65));
+
+  const r0 = 200, g0 = 200, b0 = 200;
+
+  if (v > 0) {
+    const r = Math.round(r0 + (255 - r0) * t);
+    const g = Math.round(g0 * (1 - t));
+    const b = Math.round(b0 * (1 - t));
+    return `rgb(${r}, ${g}, ${b})`;
+  } else {
+    const r = Math.round(r0 * (1 - t));
+    const g = Math.round(g0 * (1 - t));
+    const b = Math.round(b0 + (255 - b0) * t);
+    return `rgb(${r}, ${g}, ${b})`;
   }
-  return 'rgb(255, 0, 0)';
 }
 
 export function wireVoltageColor(v) {
-  const maxV = 50;
-  const t = Math.max(-1, Math.min(1, v / maxV));
-
-  let r = 180;
-  let g = 180;
-  let b = 180;
-
-  let colorP = [5, 0, 0];
-  let colorN = [0, 0, 5];
-
-  if (t > 0) {
-    r += 75 * t * colorP[0];
-    g += 75 * t * colorP[1];
-    b += 75 * t * colorP[2];
-  } else {
-    r += 75 * (-t) * colorN[0];
-    g += 75 * (-t) * colorN[1];
-    b += 75 * (-t) * colorN[2];
+  if (v === undefined || v === null || isNaN(v)) return [180, 180, 180];
+  const eps = 1e-3;
+  if (Math.abs(v) < eps) {
+    return [180, 180, 180];
   }
-  let normCol = normalize(r, g, b);
-  r = normCol[0] * 255;
-  g = normCol[1] * 255;
-  b = normCol[2] * 255;
+  const maxV = 120;
+  const absV = Math.abs(v);
+  const t = Math.min(1, Math.pow(absV / maxV, 0.65));
 
-  return [r, g, b];
+  const r0 = 180, g0 = 180, b0 = 180;
+
+  if (v > 0) {
+    const r = Math.round(r0 + (255 - r0) * t);
+    const g = Math.round(g0 * (1 - 0.85 * t));
+    const b = Math.round(b0 * (1 - 0.85 * t));
+    return [r, g, b];
+  } else {
+    const r = Math.round(r0 * (1 - 0.85 * t));
+    const g = Math.round(g0 * (1 - 0.85 * t));
+    const b = Math.round(b0 + (255 - b0) * t);
+    return [r, g, b];
+  }
 }
 
 // ===== Topology Helpers =====

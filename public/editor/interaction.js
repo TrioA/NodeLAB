@@ -28,6 +28,11 @@ import {
   dom
 } from './ui.js';
 
+import {
+  stepSimulation,
+  stepSimulationBackward
+} from './simulation.js';
+
 // ===== Hit Testing =====
 export function findNodeAt(x, y) {
   const threshold = 20;
@@ -108,9 +113,53 @@ export function addComponent(type, n1, n2, value, extra) {
   if (type === 'V') {
     comp.polarity = 1;
   }
+  if (type === 'BAT') {
+    comp.polarity = (extra && extra.polarity !== undefined) ? extra.polarity : 1;
+  }
+  if (type === 'ISRC') {
+    comp.polarity = (extra && extra.polarity !== undefined) ? extra.polarity : 1;
+  }
   if (type === 'ACV') {
     comp.frequency = (extra && extra.frequency) ? extra.frequency : 50;
     comp.phase = 0;
+  }
+  if (type === 'POT') {
+    comp.wiper = (extra && extra.wiper !== undefined) ? extra.wiper : 0.5;
+    comp.effectiveResistance = Math.max(0.001, (value || 10000) * comp.wiper);
+  }
+  if (type === 'FUSE') {
+    comp.blown = false;
+    comp.coldResistance = 0.01;
+  }
+  if (type === 'LAMP') {
+    comp.ratedPower = (extra && extra.ratedPower) ? extra.ratedPower : 1.0;
+    comp.lampColor = (extra && extra.lampColor) ? extra.lampColor : '#ffdd57';
+    comp.power = 0;
+  }
+  if (type === 'TH') {
+    comp.temperature = (extra && extra.temperature !== undefined) ? extra.temperature : 25;
+    comp.beta = (extra && extra.beta) ? extra.beta : 3950;
+    const Tk = comp.temperature + 273.15;
+    comp.effectiveResistance = Math.max(0.1, (value || 10000) * Math.exp(comp.beta * (1 / Tk - 1 / 298.15)));
+  }
+  if (type === 'LDR') {
+    comp.lightLevel = (extra && extra.lightLevel !== undefined) ? extra.lightLevel : 0.5;
+    comp.darkResistance = 1e6;
+    comp.lightResistance = 100;
+    comp.effectiveResistance = Math.max(1, comp.darkResistance * Math.exp(comp.lightLevel * Math.log(comp.lightResistance / comp.darkResistance)));
+  }
+  if (type === 'RELAY') {
+    comp.threshold = value || 3.0;
+    comp.contactType = (extra && extra.contactType) ? extra.contactType : 'NO';
+    comp.coilResistance = 100;
+    comp.isEnergized = false;
+    comp.closed = comp.contactType === 'NC';
+  }
+  if (type === 'VM') {
+    comp.value = (value && value > 0) ? value : 1e9;
+  }
+  if (type === 'AM') {
+    comp.value = (value && value > 0) ? value : 0.001;
   }
   if (type === 'GND') {
     setGroundNode(n1);
@@ -240,13 +289,26 @@ export function initInteractions(canvasEl) {
     const activeTag = el && el.tagName;
     const isEditable = el && (el.isContentEditable || activeTag === 'INPUT' || activeTag === 'TEXTAREA');
 
+    if (e.code === 'Tab' && !isEditable) {
+      e.preventDefault();
+      const rhsPanel = dom.rhsPanel;
+      const rhsContent = dom.rhsContent;
+      if (rhsPanel) rhsPanel.classList.toggle('collapsed');
+      if (rhsContent) rhsContent.classList.toggle('collapsed');
+      return;
+    }
+
     if (e.code === 'Space' && !isEditable) {
       e.preventDefault();
       runtimeState.paused = !runtimeState.paused;
+      const playBtn = dom.playBtn;
       const pauseBtn = dom.pauseBtn;
-      if (pauseBtn) {
-        pauseBtn.textContent = runtimeState.paused ? '▶ Resume' : '⏸ Pause';
-        pauseBtn.classList.toggle('active', runtimeState.paused);
+      const simStatus = dom.simStatus;
+      if (playBtn) playBtn.classList.toggle('active', !runtimeState.paused);
+      if (pauseBtn) pauseBtn.classList.toggle('active', runtimeState.paused);
+      if (simStatus) {
+        simStatus.textContent = runtimeState.paused ? 'PAUSED' : 'RUNNING';
+        simStatus.classList.toggle('paused', runtimeState.paused);
       }
       return;
     }
@@ -254,36 +316,6 @@ export function initInteractions(canvasEl) {
     if (isEditable) return;
 
     switch (e.code) {
-      case 'Digit1':
-        setMode('SELECT');
-        break;
-      case 'Digit2':
-        setMode('CREATE_NODE');
-        break;
-      case 'Digit3':
-        setMode('CREATE_WIRE');
-        break;
-      case 'Digit4':
-        setMode('CREATE_GROUND');
-        break;
-      case 'Digit5':
-        setMode('CREATE_VOLTAGE');
-        break;
-      case 'Digit6':
-        setMode('CREATE_RESISTOR');
-        break;
-      case 'Digit7':
-        setMode('CREATE_CAPACITOR');
-        break;
-      case 'Digit8':
-        setMode('CREATE_DIODE');
-        break;
-      case 'Digit9':
-        setMode('CREATE_LED');
-        break;
-      case 'Digit0':
-        setMode('CREATE_ACV');
-        break;
       case 'Delete': {
         if (editorState.multiSelected.length > 1) {
           pushUndoState();
@@ -324,12 +356,25 @@ export function initInteractions(canvasEl) {
       ? editorState.multiSelected.filter(o => circuitState.nodes.includes(o))
       : (isNode ? [obj] : []);
 
+    const stepIntervalInput = dom.stepIntervalInput;
+    const mult = stepIntervalInput ? (parseInt(stepIntervalInput.value, 10) || 1) : 1;
+
     switch (e.code) {
       case 'ArrowLeft':
         if (nodesToMove.length) {
           e.preventDefault();
           for (const n of nodesToMove) n.x = snapToGrid(n.x - step);
           saveCircuitToURL();
+        } else {
+          e.preventDefault();
+          stepSimulationBackward(showSolveError, mult);
+          const isPaused = runtimeState.paused;
+          if (dom.playBtn) dom.playBtn.classList.toggle('active', !isPaused);
+          if (dom.pauseBtn) dom.pauseBtn.classList.toggle('active', isPaused);
+          if (dom.simStatus) {
+            dom.simStatus.textContent = isPaused ? 'PAUSED' : 'RUNNING';
+            dom.simStatus.classList.toggle('paused', isPaused);
+          }
         }
         break;
       case 'ArrowRight':
@@ -337,6 +382,16 @@ export function initInteractions(canvasEl) {
           e.preventDefault();
           for (const n of nodesToMove) n.x = snapToGrid(n.x + step);
           saveCircuitToURL();
+        } else {
+          e.preventDefault();
+          stepSimulation(showSolveError, mult);
+          const isPaused = runtimeState.paused;
+          if (dom.playBtn) dom.playBtn.classList.toggle('active', !isPaused);
+          if (dom.pauseBtn) dom.pauseBtn.classList.toggle('active', isPaused);
+          if (dom.simStatus) {
+            dom.simStatus.textContent = isPaused ? 'PAUSED' : 'RUNNING';
+            dom.simStatus.classList.toggle('paused', isPaused);
+          }
         }
         break;
       case 'ArrowUp':
@@ -479,15 +534,26 @@ export function initInteractions(canvasEl) {
       return;
     }
 
-    if (editorState.mode === 'CREATE_RESISTOR' ||
+    if (
+      editorState.mode === 'CREATE_RESISTOR' ||
       editorState.mode === 'CREATE_VOLTAGE' ||
       editorState.mode === 'CREATE_ACV' ||
       editorState.mode === 'CREATE_WIRE' ||
       editorState.mode === 'CREATE_CAPACITOR' ||
       editorState.mode === 'CREATE_DIODE' ||
       editorState.mode === 'CREATE_LED' ||
-      editorState.mode === 'CREATE_SWITCH') {
-
+      editorState.mode === 'CREATE_SWITCH' ||
+      editorState.mode === 'CREATE_POT' ||
+      editorState.mode === 'CREATE_BATTERY' ||
+      editorState.mode === 'CREATE_CURRENT_SOURCE' ||
+      editorState.mode === 'CREATE_VOLTMETER' ||
+      editorState.mode === 'CREATE_AMMETER' ||
+      editorState.mode === 'CREATE_FUSE' ||
+      editorState.mode === 'CREATE_LAMP' ||
+      editorState.mode === 'CREATE_THERMISTOR' ||
+      editorState.mode === 'CREATE_PHOTORESISTOR' ||
+      editorState.mode === 'CREATE_RELAY'
+    ) {
       const n = findNodeAt(gx, gy);
       if (!n) return;
 
@@ -500,7 +566,17 @@ export function initInteractions(canvasEl) {
         CREATE_DIODE: 'D',
         CREATE_LED: 'LED',
         CREATE_SWITCH: 'SW',
-        CREATE_GROUND: "GND"
+        CREATE_GROUND: "GND",
+        CREATE_POT: 'POT',
+        CREATE_BATTERY: 'BAT',
+        CREATE_CURRENT_SOURCE: 'ISRC',
+        CREATE_VOLTMETER: 'VM',
+        CREATE_AMMETER: 'AM',
+        CREATE_FUSE: 'FUSE',
+        CREATE_LAMP: 'LAMP',
+        CREATE_THERMISTOR: 'TH',
+        CREATE_PHOTORESISTOR: 'LDR',
+        CREATE_RELAY: 'RELAY'
       };
       const toolType = toolMap[editorState.mode];
       const value = getCurrentToolValue(toolType);
@@ -510,6 +586,18 @@ export function initInteractions(canvasEl) {
         if (toolType === 'ACV') {
           const freqEl = document.getElementById('acvFrequency');
           extra.frequency = freqEl ? (parseFloat(freqEl.value) || 50) : 50;
+        } else if (toolType === 'POT') {
+          const wiperEl = document.getElementById('potentiometerWiper');
+          extra.wiper = wiperEl ? (parseFloat(wiperEl.value) / 100 || 0.5) : 0.5;
+        } else if (toolType === 'LAMP') {
+          const pwrEl = document.getElementById('lampRatedPower');
+          extra.ratedPower = pwrEl ? (parseFloat(pwrEl.value) || 1.0) : 1.0;
+        } else if (toolType === 'TH') {
+          const tempEl = document.getElementById('thermistorTemp');
+          extra.temperature = tempEl ? (parseFloat(tempEl.value) || 25) : 25;
+        } else if (toolType === 'LDR') {
+          const lightEl = document.getElementById('ldrLightLevel');
+          extra.lightLevel = lightEl ? (parseFloat(lightEl.value) / 100 || 0.5) : 0.5;
         }
         editorState.placing = { type: toolType, value, n1: n, n2: null, extra };
       } else {
@@ -668,7 +756,15 @@ export function initInteractions(canvasEl) {
   });
 
   // Touch & Pointercancel support
+  let lastTouchEndTime = 0;
+  const TOUCH_DELAY_MS = 250;
+
   canvasEl.addEventListener('touchstart', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEndTime < TOUCH_DELAY_MS) {
+      e.preventDefault();
+      return;
+    }
     if (e.touches.length === 1) {
       const touch = e.touches[0];
       const rect = canvasEl.getBoundingClientRect();
@@ -732,6 +828,7 @@ export function initInteractions(canvasEl) {
 
   canvasEl.addEventListener('touchend', (e) => {
     if (e.touches.length === 0) {
+      lastTouchEndTime = Date.now();
       canvasEl.dispatchEvent(new MouseEvent('mouseup', {}));
     }
     initialTouchDist = 0;
@@ -752,79 +849,75 @@ export function initToolbarDrag() {
   const toolbar = document.getElementById('toolbar');
   if (!toolbar) return;
 
-  const savedPos = localStorage.getItem('nodeLabToolbarPos');
-  let currentX = 0;
-  let currentY = 0;
-  let targetX = 0;
-  let targetY = 0;
-  let isDragging = false;
-  let dragOffsetX = 0;
-  let dragOffsetY = 0;
-  let animFrameId = null;
+  const dragHandles = toolbar.querySelectorAll('.toolbar-drag-handle');
+  if (!dragHandles.length) return;
 
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialLeft = 0;
+  let initialTop = 0;
+
+  const savedPos = localStorage.getItem('nodeLabToolbarPos');
   if (savedPos) {
     try {
       const { x, y } = JSON.parse(savedPos);
-      const w = toolbar.offsetWidth || 300;
+      const w = toolbar.offsetWidth || 200;
       const h = toolbar.offsetHeight || 40;
-      currentX = targetX = Math.max(0, Math.min(window.innerWidth - w, x));
-      currentY = targetY = Math.max(0, Math.min(window.innerHeight - h, y));
-      toolbar.style.left = `${currentX}px`;
-      toolbar.style.top = `${currentY}px`;
+      const clampX = Math.max(0, Math.min(window.innerWidth - w, x));
+      const clampY = Math.max(0, Math.min(window.innerHeight - h, y));
+      toolbar.style.left = `${clampX}px`;
+      toolbar.style.top = `${clampY}px`;
       toolbar.style.transform = 'none';
-    } catch {}
+    } catch { }
   }
 
-  function updatePosition() {
-    if (!isDragging) return;
+  const onPointerDown = (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
 
-    // Direct & smooth lerp to follow cursor
-    currentX += (targetX - currentX) * 0.45;
-    currentY += (targetY - currentY) * 0.45;
+    const rect = toolbar.getBoundingClientRect();
+    initialLeft = rect.left;
+    initialTop = rect.top;
 
-    toolbar.style.left = `${currentX}px`;
-    toolbar.style.top = `${currentY}px`;
+    toolbar.style.left = `${initialLeft}px`;
+    toolbar.style.top = `${initialTop}px`;
     toolbar.style.transform = 'none';
 
-    animFrameId = requestAnimationFrame(updatePosition);
-  }
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+    e.preventDefault();
+  };
 
-  document.addEventListener('mousedown', (e) => {
-    if (e.target && e.target.classList && e.target.classList.contains('toolbar-drag-handle')) {
-      isDragging = true;
-      const rect = toolbar.getBoundingClientRect();
-      currentX = rect.left;
-      currentY = rect.top;
-      dragOffsetX = e.clientX - rect.left;
-      dragOffsetY = e.clientY - rect.top;
-      targetX = currentX;
-      targetY = currentY;
-      e.preventDefault();
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      animFrameId = requestAnimationFrame(updatePosition);
-    }
-  });
-
-  document.addEventListener('mousemove', (e) => {
+  const onPointerMove = (e) => {
     if (!isDragging) return;
-    const w = toolbar.offsetWidth || 300;
-    const h = toolbar.offsetHeight || 40;
-    const rawX = e.clientX - dragOffsetX;
-    const rawY = e.clientY - dragOffsetY;
-    targetX = Math.max(0, Math.min(window.innerWidth - w, rawX));
-    targetY = Math.max(0, Math.min(window.innerHeight - h, rawY));
-  });
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
 
-  document.addEventListener('mouseup', () => {
-    if (isDragging) {
-      isDragging = false;
-      if (animFrameId) cancelAnimationFrame(animFrameId);
-      currentX = targetX;
-      currentY = targetY;
-      toolbar.style.left = `${currentX}px`;
-      toolbar.style.top = `${currentY}px`;
-      localStorage.setItem('nodeLabToolbarPos', JSON.stringify({ x: currentX, y: currentY }));
-    }
+    const w = toolbar.offsetWidth || 200;
+    const h = toolbar.offsetHeight || 40;
+
+    const newLeft = Math.max(0, Math.min(window.innerWidth - w, initialLeft + dx));
+    const newTop = Math.max(0, Math.min(window.innerHeight - h, initialTop + dy));
+
+    toolbar.style.left = `${newLeft}px`;
+    toolbar.style.top = `${newTop}px`;
+  };
+
+  const onPointerUp = () => {
+    if (!isDragging) return;
+    isDragging = false;
+
+    document.removeEventListener('pointermove', onPointerMove);
+    document.removeEventListener('pointerup', onPointerUp);
+
+    const rect = toolbar.getBoundingClientRect();
+    localStorage.setItem('nodeLabToolbarPos', JSON.stringify({ x: rect.left, y: rect.top }));
+  };
+
+  dragHandles.forEach(handle => {
+    handle.addEventListener('pointerdown', onPointerDown);
   });
 }
 

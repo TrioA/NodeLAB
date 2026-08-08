@@ -52,7 +52,10 @@ export function redo(clearSelectionFn) {
 }
 
 export function rebuildNextTypeIds() {
-  const maxIds = { R: 0, V: 0, C: 0, D: 0, LED: 0, SW: 0, ACV: 0, W: 0, GND: 0 };
+  const maxIds = {
+    R: 0, V: 0, C: 0, D: 0, LED: 0, SW: 0, ACV: 0, W: 0, GND: 0,
+    POT: 0, BAT: 0, ISRC: 0, VM: 0, AM: 0, FUSE: 0, LAMP: 0, TH: 0, LDR: 0, RELAY: 0
+  };
   for (const c of circuitState.components) {
     if (!c.name) continue;
     const match = c.name.match(/^([A-Za-z]+)(\d+)$/);
@@ -93,7 +96,22 @@ export function exportCircuitData() {
       phase: c.phase,
 
       ledColor: c.ledColor,
-      closed: !!c.closed
+      closed: !!c.closed,
+
+      wiper: c.wiper,
+      temperature: c.temperature,
+      beta: c.beta,
+      lightLevel: c.lightLevel,
+      darkResistance: c.darkResistance,
+      lightResistance: c.lightResistance,
+      blown: !!c.blown,
+      coldResistance: c.coldResistance,
+      ratedPower: c.ratedPower,
+      lampColor: c.lampColor,
+      threshold: c.threshold,
+      contactType: c.contactType,
+      coilResistance: c.coilResistance,
+      isEnergized: !!c.isEnergized
     })),
 
     nextId: circuitState.nextId,
@@ -140,6 +158,20 @@ export function importCircuitData(data) {
       phase: c.phase ?? 0,
       ledColor: c.ledColor ?? '#00ff88',
       closed: !!c.closed,
+      wiper: c.wiper !== undefined ? c.wiper : 0.5,
+      temperature: c.temperature !== undefined ? c.temperature : 25,
+      beta: c.beta ?? 3950,
+      lightLevel: c.lightLevel !== undefined ? c.lightLevel : 0.5,
+      darkResistance: c.darkResistance ?? 1e6,
+      lightResistance: c.lightResistance ?? 100,
+      blown: !!c.blown,
+      coldResistance: c.coldResistance ?? 0.01,
+      ratedPower: c.ratedPower ?? 1.0,
+      lampColor: c.lampColor ?? '#ffdd57',
+      threshold: c.threshold ?? (c.value || 3.0),
+      contactType: c.contactType ?? 'NO',
+      coilResistance: c.coilResistance ?? 100,
+      isEnergized: !!c.isEnergized,
       current: 0,
       displayBrightness: 0,
       capacitorVoltage: 0,
@@ -184,7 +216,23 @@ export function saveCircuitToURL() {
       c.phase || 0,                   // [7]
       c.ledColor || "",               // [8]
       c.closed ? 1 : 0,               // [9]
-      c.name || ""                    // [10] component name
+      c.name || "",                   // [10] component name
+      {
+        wiper: c.wiper,
+        temperature: c.temperature,
+        beta: c.beta,
+        lightLevel: c.lightLevel,
+        darkResistance: c.darkResistance,
+        lightResistance: c.lightResistance,
+        blown: c.blown ? 1 : 0,
+        coldResistance: c.coldResistance,
+        ratedPower: c.ratedPower,
+        lampColor: c.lampColor,
+        threshold: c.threshold,
+        contactType: c.contactType,
+        coilResistance: c.coilResistance,
+        isEnergized: c.isEnergized ? 1 : 0
+      }                               // [11] extra component properties
     ]),
 
     circuitState.nextId,              // [2] top-level nextId
@@ -251,6 +299,8 @@ export function loadCircuitFromURL() {
         continue;
       }
 
+      const extra = c[11] || {};
+
       circuitState.components.push({
         type: c[0],
         id: c[1],           // component id restored
@@ -263,6 +313,20 @@ export function loadCircuitFromURL() {
         ledColor: c[8] || '#00ff88',
         closed: !!c[9],
         name: c[10] || `${c[0]}${c[1]}`,
+        wiper: extra.wiper !== undefined ? extra.wiper : 0.5,
+        temperature: extra.temperature !== undefined ? extra.temperature : 25,
+        beta: extra.beta ?? 3950,
+        lightLevel: extra.lightLevel !== undefined ? extra.lightLevel : 0.5,
+        darkResistance: extra.darkResistance ?? 1e6,
+        lightResistance: extra.lightResistance ?? 100,
+        blown: !!extra.blown,
+        coldResistance: extra.coldResistance ?? 0.01,
+        ratedPower: extra.ratedPower ?? 1.0,
+        lampColor: extra.lampColor ?? '#ffdd57',
+        threshold: extra.threshold ?? (c[4] || 3.0),
+        contactType: extra.contactType ?? 'NO',
+        coilResistance: extra.coilResistance ?? 100,
+        isEnergized: !!extra.isEnergized,
         current: 0,
         displayBrightness: 0,
         capacitorVoltage: 0,

@@ -109,6 +109,13 @@ function drawCurrentFlow(ctx2d, comp) {
     alpha = 0.7;
   }
 
+  if (editorState.displaySettings?.useVoltageColoring) {
+    const originNode = I >= 0 ? n1 : n2;
+    const originVx = originNode ? (originNode.vx || 0) : 0;
+    const originCol = wireVoltageColor(originVx);
+    color = `${originCol[0]}, ${originCol[1]}, ${originCol[2]}`;
+  }
+
   const t = runtimeState.currentAnimTime * 0.001;
   const offset = (t * speed * direction) % (dashLength + gapLength);
 
@@ -164,14 +171,20 @@ function drawSelectionOutline(obj) {
       ctx.moveTo(obj.n1.x, obj.n1.y);
       ctx.lineTo(obj.n2.x, obj.n2.y);
       ctx.stroke();
-    } else if (obj.type === 'R') {
+    } else if (
+      obj.type === 'R' ||
+      obj.type === 'POT' ||
+      obj.type === 'TH' ||
+      obj.type === 'LDR' ||
+      obj.type === 'FUSE'
+    ) {
       const mx = (obj.n1.x + obj.n2.x) / 2;
       const my = (obj.n1.y + obj.n2.y) / 2;
       const dx = obj.n2.x - obj.n1.x;
       const dy = obj.n2.y - obj.n1.y;
       const angle = Math.atan2(dy, dx);
-      const rectLength = 24 + 6;
-      const rectHeight = 12 + 6;
+      const rectLength = 24 + 8;
+      const rectHeight = 12 + 8;
 
       ctx.save();
       ctx.translate(mx, my);
@@ -197,7 +210,15 @@ function drawSelectionOutline(obj) {
       ctx.moveTo(obj.n2.x, obj.n2.y);
       ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
       ctx.stroke();
-    } else if (obj.type === 'V' || obj.type === 'ACV') {
+    } else if (
+      obj.type === 'V' ||
+      obj.type === 'ACV' ||
+      obj.type === 'BAT' ||
+      obj.type === 'ISRC' ||
+      obj.type === 'VM' ||
+      obj.type === 'AM' ||
+      obj.type === 'LAMP'
+    ) {
       const mx = (obj.n1.x + obj.n2.x) / 2;
       const my = (obj.n1.y + obj.n2.y) / 2;
       ctx.lineWidth = 5;
@@ -257,14 +278,14 @@ function drawSelectionOutline(obj) {
       ctx.moveTo(obj.n2.x, obj.n2.y);
       ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
       ctx.stroke();
-    } else if (obj.type === 'LED' || obj.type === 'D' || obj.type === 'SW') {
+    } else if (obj.type === 'LED' || obj.type === 'D' || obj.type === 'SW' || obj.type === 'RELAY') {
       const mx = (obj.n1.x + obj.n2.x) / 2;
       const my = (obj.n1.y + obj.n2.y) / 2;
       const dx = obj.n2.x - obj.n1.x;
       const dy = obj.n2.y - obj.n1.y;
       const angle = Math.atan2(dy, dx);
-      const rectLength = 28;
-      const rectHeight = 24;
+      const rectLength = obj.type === 'RELAY' ? 36 : 28;
+      const rectHeight = obj.type === 'RELAY' ? 28 : 24;
 
       ctx.save();
       ctx.translate(mx, my);
@@ -402,8 +423,14 @@ function draw() {
 
   // Component lines & leads
   for (const c of circuitState.components) {
+    const current = c.current || 0;
+    const absI = Math.abs(current);
+    const glowIntensity = absI < 1e-9 ? 0 : Math.min(1, Math.log10(absI * 1000 + 1) * 0.35);
+    const shadowBlur = (absI < 1e-9 ? 2 : 4 + glowIntensity * 16) * editorState.scale;
+    const glowAlpha = absI < 1e-9 ? 0.25 : Math.min(1, 0.4 + glowIntensity * 0.6);
+
     let strokeStyle = '#78909c';
-    let glowColor = 'rgba(120, 144, 156, 0.5)';
+    let glowColor = `rgba(120, 144, 156, ${glowAlpha})`;
 
     if (ds.useVoltageColoring) {
       const grad = ctx.createLinearGradient(
@@ -418,13 +445,13 @@ function draw() {
       grad.addColorStop(1, `rgb(${col2[0]}, ${col2[1]}, ${col2[2]})`);
       strokeStyle = grad;
 
-      const avgV = ((c.n1.vx || 0) + (c.n2.vx || 0)) * 0.5;
-      let avgVCol = wireVoltageColor(avgV);
-      const currentGlow = Math.min(Math.abs(c.current) * 0.2, 1);
-      glowColor = `rgba(${avgVCol[0]}, ${avgVCol[1]}, ${avgVCol[2]}, ${currentGlow * 10})`;
+      const originNode = current >= 0 ? c.n1 : c.n2;
+      const originVx = originNode ? (originNode.vx || 0) : 0;
+      const originCol = wireVoltageColor(originVx);
+      glowColor = `rgba(${originCol[0]}, ${originCol[1]}, ${originCol[2]}, ${glowAlpha})`;
     }
 
-    ctx.shadowBlur = 5 * Math.pow(editorState.scale, 1.0);
+    ctx.shadowBlur = shadowBlur;
     ctx.shadowColor = glowColor;
 
     ctx.strokeStyle = c.hasError ? '#e74c3c' : strokeStyle;
@@ -452,9 +479,13 @@ function draw() {
       let bodyRadius = 17;
       if (c.type === 'V') bodyRadius = 10;
       else if (c.type === 'ACV') bodyRadius = 12;
+      else if (c.type === 'BAT') bodyRadius = 10;
+      else if (c.type === 'ISRC' || c.type === 'VM' || c.type === 'AM' || c.type === 'LAMP') bodyRadius = 14;
       else if (c.type === 'C') bodyRadius = 6;
       else if (c.type === 'D' || c.type === 'LED') bodyRadius = 12;
       else if (c.type === 'SW') bodyRadius = 12;
+      else if (c.type === 'FUSE') bodyRadius = 13;
+      else if (c.type === 'RELAY') bodyRadius = 17;
 
       const lead1EndX = mx - ux * bodyRadius;
       const lead1EndY = my - uy * bodyRadius;
@@ -480,14 +511,48 @@ function draw() {
 
   // Nodes
   for (const n of circuitState.nodes) {
+    let maxI = 0;
+    let originVx = n.vx || 0;
+
+    for (const c of circuitState.components) {
+      const cI = c.current || 0;
+      const absCI = Math.abs(cI);
+      if (c.n1 === n || c.n2 === n) {
+        if (absCI > maxI) {
+          maxI = absCI;
+          if (c.n2 === n && cI > 0) {
+            originVx = c.n1.vx || 0;
+          } else if (c.n1 === n && cI < 0) {
+            originVx = c.n2.vx || 0;
+          } else {
+            originVx = n.vx || 0;
+          }
+        }
+      }
+    }
+
+    const nodeGlowIntensity = maxI < 1e-9 ? 0 : Math.min(1, Math.log10(maxI * 1000 + 1) * 0.35);
+    const nodeShadowBlur = (maxI < 1e-9 ? 2 : 5 + nodeGlowIntensity * 18) * editorState.scale;
+    const nodeGlowAlpha = maxI < 1e-9 ? 0.25 : 0.45 + nodeGlowIntensity * 0.55;
+
     let color = '#b0bec5';
+    let nodeGlowColor = `rgba(176, 190, 197, ${nodeGlowAlpha})`;
+
     if (ds.useVoltageColoring) {
       color = n.hasError ? '#e74c3c' : (n.vx !== undefined ? voltageColor(n.vx) : '#fff');
+      const originCol = wireVoltageColor(originVx);
+      nodeGlowColor = `rgba(${originCol[0]}, ${originCol[1]}, ${originCol[2]}, ${nodeGlowAlpha})`;
     }
+
+    ctx.shadowBlur = nodeShadowBlur;
+    ctx.shadowColor = nodeGlowColor;
+
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
     ctx.fill();
+    ctx.shadowBlur = 0;
+
     if (ds.showNodeVoltages) {
       ctx.fillStyle = n.hasError ? '#e74c3c' : '#eee';
       ctx.font = '12px monospace';
@@ -531,6 +596,16 @@ function draw() {
         ctx.fillStyle = '#eee';
         let valStr = `${c.value}`;
         if (c.type === 'R') valStr += 'Ω';
+        else if (c.type === 'POT') valStr = `${c.value}Ω (${Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100)}%)`;
+        else if (c.type === 'BAT') valStr = `${c.value}V`;
+        else if (c.type === 'ISRC') valStr = `${c.value}A`;
+        else if (c.type === 'VM') valStr = `${(c.n1.vx != null && c.n2.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(2)}V`;
+        else if (c.type === 'AM') valStr = formatCurrent(c.current || 0);
+        else if (c.type === 'FUSE') valStr = `${c.value}A${c.blown ? ' (BLOWN)' : ''}`;
+        else if (c.type === 'LAMP') valStr = `${c.value}Ω${c.power ? ' ' + c.power.toFixed(1) + 'W' : ''}`;
+        else if (c.type === 'TH') valStr = `${c.temperature !== undefined ? c.temperature : 25}°C`;
+        else if (c.type === 'LDR') valStr = `${Math.round((c.lightLevel !== undefined ? c.lightLevel : 0.5) * 100)}% light`;
+        else if (c.type === 'RELAY') valStr = `${c.value}V (${c.isEnergized ? 'ON' : 'OFF'})`;
         else if (c.type === 'C') valStr += 'F';
         else if (c.type === 'V') valStr += 'V';
         else if (c.type === 'ACV') valStr = `${c.value}V ${c.frequency || 50}Hz`;
@@ -602,7 +677,7 @@ function draw() {
         ctx.moveTo(c.n1.x, c.n1.y);
         ctx.lineTo(c.n2.x, c.n2.y);
         ctx.stroke();
-      } else if (c.type === 'R') {
+      } else if (c.type === 'R' || c.type === 'POT' || c.type === 'TH' || c.type === 'LDR' || c.type === 'FUSE') {
         const mx = (c.n1.x + c.n2.x) / 2;
         const my = (c.n1.y + c.n2.y) / 2;
         const dx = c.n2.x - c.n1.x;
@@ -632,7 +707,19 @@ function draw() {
         ctx.moveTo(c.n2.x, c.n2.y);
         ctx.lineTo(mx + ux * rl / 2, my + uy * rl / 2);
         ctx.stroke();
-      } else if (c.type === 'V' || c.type === 'ACV' || c.type === 'LED' || c.type === 'D' || c.type === 'SW') {
+      } else if (
+        c.type === 'V' ||
+        c.type === 'ACV' ||
+        c.type === 'BAT' ||
+        c.type === 'ISRC' ||
+        c.type === 'VM' ||
+        c.type === 'AM' ||
+        c.type === 'LAMP' ||
+        c.type === 'LED' ||
+        c.type === 'D' ||
+        c.type === 'SW' ||
+        c.type === 'RELAY'
+      ) {
         const mx = (c.n1.x + c.n2.x) / 2;
         const my = (c.n1.y + c.n2.y) / 2;
         ctx.lineWidth = 3;
@@ -694,6 +781,39 @@ function draw() {
         if (c.type === 'R') {
           settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} Ω</span></div>`;
           resHtml = `<div class="tooltip-row"><span class="tooltip-label">Resistance:</span><span class="tooltip-val">${c.value} Ω</span></div>`;
+        } else if (c.type === 'POT') {
+          const wiperPct = Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100);
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Total R:</span><span class="tooltip-val">${c.value} Ω</span></div><div class="tooltip-row"><span class="tooltip-label">Wiper:</span><span class="tooltip-val">${wiperPct}%</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Effective R:</span><span class="tooltip-val">${(c.effectiveResistance || c.value * 0.5).toFixed(1)} Ω</span></div>`;
+        } else if (c.type === 'BAT') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Voltage:</span><span class="tooltip-val">${c.value} V</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">DC Battery</span></div>`;
+        } else if (c.type === 'ISRC') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Current:</span><span class="tooltip-val">${c.value} A</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Ideal Current Source</span></div>`;
+        } else if (c.type === 'VM') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Impedance:</span><span class="tooltip-val">${c.value || 1e9} Ω</span></div>`;
+          const vmVolt = (c.n1.vx != null && c.n2.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(2);
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Reading:</span><span class="tooltip-val" style="color:#00e5ff;">${vmVolt} V</span></div>`;
+        } else if (c.type === 'AM') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Shunt:</span><span class="tooltip-val">${c.value || 0.001} Ω</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Reading:</span><span class="tooltip-val" style="color:#2ecc71;">${formatCurrent(c.current || 0)}</span></div>`;
+        } else if (c.type === 'FUSE') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Rating:</span><span class="tooltip-val">${c.value} A</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Status:</span><span class="tooltip-val" style="color:${c.blown ? '#e74c3c' : '#2ecc71'};">${c.blown ? 'BLOWN / OPEN' : 'INTACT'}</span></div>`;
+        } else if (c.type === 'LAMP') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Resistance:</span><span class="tooltip-val">${c.value} Ω</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Power:</span><span class="tooltip-val" style="color:#f39c12;">${(c.power || 0).toFixed(2)} W</span></div>`;
+        } else if (c.type === 'TH') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Temp:</span><span class="tooltip-val">${c.temperature !== undefined ? c.temperature : 25} °C</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">R(T):</span><span class="tooltip-val">${(c.effectiveResistance || c.value || 10000).toFixed(1)} Ω</span></div>`;
+        } else if (c.type === 'LDR') {
+          const lPct = Math.round((c.lightLevel !== undefined ? c.lightLevel : 0.5) * 100);
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Light:</span><span class="tooltip-val">${lPct}%</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">R(light):</span><span class="tooltip-val">${(c.effectiveResistance || 10000).toFixed(1)} Ω</span></div>`;
+        } else if (c.type === 'RELAY') {
+          settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Threshold:</span><span class="tooltip-val">${c.value || c.threshold || 3} V</span></div>`;
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">State:</span><span class="tooltip-val" style="color:${c.isEnergized ? '#2ecc71' : '#888'};">${c.isEnergized ? 'ENERGIZED (CLOSED)' : 'DE-ENERGIZED (OPEN)'}</span></div>`;
         } else if (c.type === 'V') {
           settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} V</span></div>`;
           resHtml = `<div class="tooltip-row"><span class="tooltip-label">Resistance:</span><span class="tooltip-val">0 Ω (Ideal)</span></div>`;
@@ -709,8 +829,8 @@ function draw() {
         } else if (c.type === 'LED') {
           settingsHtml = `<div class="tooltip-row"><span class="tooltip-label">Setting:</span><span class="tooltip-val">${c.value} V</span></div>`;
           resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">LED</span></div>`;
-        } else if (c.type === 'S') {
-          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Switch</span></div>`;
+        } else if (c.type === 'SW') {
+          resHtml = `<div class="tooltip-row"><span class="tooltip-label">Type:</span><span class="tooltip-val">Switch (${c.closed ? 'CLOSED' : 'OPEN'})</span></div>`;
         }
 
         const v1 = c.n1.vx != null ? `${c.n1.vx.toFixed(2)} V` : '-';
