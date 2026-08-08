@@ -315,19 +315,19 @@ export function initInteractions(canvasEl) {
 
     if (isEditable) return;
 
-    if (e.code === 'Backquote') {
+    if (e.code === 'Digit1' || e.code === 'Numpad1') {
       setMode('SELECT');
       return;
     }
-    if (e.code === 'Digit1' || e.code === 'Numpad1') {
+    if (e.code === 'Digit2' || e.code === 'Numpad2') {
       setMode('CREATE_NODE');
       return;
     }
-    if (e.code === 'Digit2' || e.code === 'Numpad2') {
+    if (e.code === 'Digit3' || e.code === 'Numpad3') {
       setMode('CREATE_WIRE');
       return;
     }
-    if (e.code === 'Digit3' || e.code === 'Numpad3') {
+    if (e.code === 'Digit4' || e.code === 'Numpad4') {
       if (editorState.mode === 'PAN') setMode('SELECT');
       else setMode('PAN');
       return;
