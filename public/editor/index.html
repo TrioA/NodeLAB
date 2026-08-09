@@ -71,7 +71,8 @@
 
                 </div>
 
-                <div class="settings-group" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-secondary);">
+                <div class="settings-group"
+                    style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border-secondary);">
                     <label style="margin-bottom:8px;">
                         <span>Display Settings</span>
                     </label>
@@ -111,7 +112,7 @@
     <!-- RHS Component Library Panel Drawer -->
     <div id="rhsPanel" class="rhs-panel collapsed">
         <div id="rhsHeader" class="drawer-handle rhs-handle" title="Toggle Component Library">
-            <span><i data-lucide="zap"></i> Component Library</span>
+            <span>Component Library</span>
         </div>
         <div id="rhsContent" class="rhs-drawer-content collapsed">
             <div class="drawer-title">Component Library</div>
@@ -149,7 +150,7 @@
                         </div>
                     </div>
                     <div class="tool-wrapper">
-                        <button id="addPotentiometer" class="tool-btn comp-btn" title="Place Potentiometer">
+                        <button id="addPotentiometer" class="tool-btn comp-btn" title="Place Potentiometer (3 Pin)">
                             <span class="comp-icon"><i data-lucide="sliders"></i></span> Potentiometer
                         </button>
                         <div class="tool-dropdown">
@@ -157,6 +158,17 @@
                             <input id="potentiometerValue" type="number" value="10000" step="any" min="0.0001" />
                             <label for="potentiometerWiper" style="margin-top:6px;">Wiper (%)</label>
                             <input id="potentiometerWiper" type="number" value="50" min="0" max="100" step="1" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addRheostat" class="tool-btn comp-btn" title="Place Rheostat (2 Pin)">
+                            <span class="comp-icon"><i data-lucide="git-commit"></i></span> Rheostat
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="rheostatValue">Max Resistance (Ω)</label>
+                            <input id="rheostatValue" type="number" value="10000" step="any" min="0.0001" />
+                            <label for="rheostatWiper" style="margin-top:6px;">Wiper (%)</label>
+                            <input id="rheostatWiper" type="number" value="50" min="0" max="100" step="1" />
                         </div>
                     </div>
                     <div class="tool-wrapper">
@@ -258,6 +270,24 @@
                             <input id="ledValue" type="number" value="1.7" step="any" min="0.001" />
                         </div>
                     </div>
+                    <div class="tool-wrapper">
+                        <button id="addNMOS" class="tool-btn comp-btn" title="Place NMOS Transistor (3 Pin)">
+                            <span class="comp-icon"><i data-lucide="cpu"></i></span> NMOS
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="nmosVth">Threshold Vth (V)</label>
+                            <input id="nmosVth" type="number" value="1.5" step="0.1" />
+                        </div>
+                    </div>
+                    <div class="tool-wrapper">
+                        <button id="addPMOS" class="tool-btn comp-btn" title="Place PMOS Transistor (3 Pin)">
+                            <span class="comp-icon"><i data-lucide="cpu"></i></span> PMOS
+                        </button>
+                        <div class="tool-dropdown">
+                            <label for="pmosVth">Threshold Vth (V)</label>
+                            <input id="pmosVth" type="number" value="-1.5" step="0.1" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -327,10 +357,14 @@
 
             <div class="save-menu" id="saveMenu">
                 <div class="save-menu-header">File</div>
-                <button id="newCircuitBtn" class="save-item"><i data-lucide="file-plus" style="width:16px;height:16px;"></i> New Circuit</button>
-                <button id="saveCircuitBtn" class="save-item"><i data-lucide="save" style="width:16px;height:16px;"></i> Save Current Circuit</button>
+                <button id="newCircuitBtn" class="save-item"><i data-lucide="file-plus"
+                        style="width:16px;height:16px;"></i> New Circuit</button>
+                <button id="saveCircuitBtn" class="save-item"><i data-lucide="save" style="width:16px;height:16px;"></i>
+                    Save Current Circuit</button>
                 <div class="save-submenu-wrapper">
-                    <button id="savedCircuitsBtn" class="save-item"><i data-lucide="folder-open" style="width:16px;height:16px;"></i> Saved Circuits <i data-lucide="chevron-right" style="width:14px;height:14px;"></i></button>
+                    <button id="savedCircuitsBtn" class="save-item"><i data-lucide="folder-open"
+                            style="width:16px;height:16px;"></i> Saved Circuits <i data-lucide="chevron-right"
+                            style="width:14px;height:14px;"></i></button>
                     <div class="save-submenu" id="saveList"></div>
                 </div>
             </div>
@@ -359,6 +393,11 @@
                     <span class="comp-icon"><i data-lucide="move"></i></span>
                 </button>
             </div>
+            <div class="tool-wrapper">
+                <button id="openPlotBtn" class="tool-btn" title="Open Real-time Oscilloscope / Waveform Plot">
+                    <span class="comp-icon"><i data-lucide="line-chart"></i></span> Plot
+                </button>
+            </div>
         </nav>
 
         <div class="toolbar-drag-handle" title="Drag to move toolbar"><i data-lucide="grip-vertical"></i></div>
@@ -366,15 +405,22 @@
 
     <!-- Bottom Simulation Toolbar -->
     <div id="simToolbar" class="sim-toolbar">
-        <button id="stepBackBtn" class="sim-btn" title="Step Simulation Backward"><i data-lucide="skip-back"></i></button>
+        <button id="stepBackBtn" class="sim-btn" title="Step Simulation Backward"><i
+                data-lucide="skip-back"></i></button>
         <button id="playBtn" class="sim-btn" title="Run / Play Simulation"><i data-lucide="play"></i></button>
         <button id="pauseBtn" class="sim-btn" title="Pause Simulation (Space)"><i data-lucide="pause"></i></button>
         <button id="stepBtn" class="sim-btn" title="Step Simulation Forward"><i data-lucide="skip-forward"></i></button>
-        <div class="step-interval-wrapper" style="display:flex;align-items:center;gap:4px;margin:0 4px;font-size:12px;color:var(--text-secondary);">
-            <label for="stepIntervalInput" style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);">Step:</label>
-            <div style="display:inline-flex;align-items:center;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:0 6px;">
-                <input type="number" id="stepIntervalInput" value="10" min="1" max="1000" step="1" style="width:44px;background:transparent;color:var(--text-primary);border:none;outline:none;padding:2px 0;font-family:var(--font-mono);font-size:12px;text-align:center;" title="Step Interval in milliseconds" />
-                <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);margin-left:2px;">ms</span>
+        <div class="step-interval-wrapper"
+            style="display:flex;align-items:center;gap:4px;margin:0 4px;font-size:12px;color:var(--text-secondary);">
+            <label for="stepIntervalInput"
+                style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);">Step:</label>
+            <div
+                style="display:inline-flex;align-items:center;background:var(--bg-tertiary);border:1px solid var(--border-primary);border-radius:var(--radius-sm);padding:0 6px;">
+                <input type="number" id="stepIntervalInput" value="10" min="1" max="1000" step="1"
+                    style="width:44px;background:transparent;color:var(--text-primary);border:none;outline:none;padding:2px 0;font-family:var(--font-mono);font-size:12px;text-align:center;"
+                    title="Step Interval in milliseconds" />
+                <span
+                    style="font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);margin-left:2px;">ms</span>
             </div>
         </div>
         <div class="sim-status" id="simStatus">RUNNING</div>
@@ -391,6 +437,88 @@
         </aside>
 
         <div class="tooltip-box" id="tooltipBox" style="display: none;"></div>
+
+        <!-- Real-time Oscilloscope / Signal Plotter Window -->
+        <div id="plotterPanel" class="plotter-panel" style="display: none;">
+            <div class="plotter-header" id="plotterHeader">
+                <div class="plotter-title">
+                    <i data-lucide="activity" style="width:16px;height:16px;color:#00ff88;"></i>
+                    <span>Live Oscilloscope / Waveform Plot</span>
+                    <span class="plotter-badge" id="plotterStatusBadge">ACTIVE</span>
+                </div>
+                <div class="plotter-header-actions">
+                    <button id="plotterPauseBtn" class="plot-icon-btn" title="Pause / Resume Plot Stream"><i data-lucide="pause"></i></button>
+                    <button id="plotterClearBtn" class="plot-icon-btn" title="Clear Buffer"><i data-lucide="trash-2"></i></button>
+                    <button id="plotterMinimizeBtn" class="plot-icon-btn" title="Minimize / Expand"><i data-lucide="minus"></i></button>
+                    <button id="plotterCloseBtn" class="plot-icon-btn" title="Close Plotter"><i data-lucide="x"></i></button>
+                </div>
+            </div>
+            <div class="plotter-body" id="plotterBody">
+                <!-- Channel Probes & Controls Strip -->
+                <div class="plotter-controls-bar">
+                    <div class="plotter-ch-group ch1">
+                        <span class="ch-indicator ch1-dot"></span>
+                        <label>CH 1:</label>
+                        <select id="plotterCh1Source" class="plot-select">
+                            <option value="">Select Probe Target...</option>
+                        </select>
+                        <select id="plotterCh1Signal" class="plot-select-sm">
+                            <option value="V">Voltage (V)</option>
+                            <option value="I">Current (I)</option>
+                            <option value="P">Power (W)</option>
+                        </select>
+                    </div>
+                    <div class="plotter-ch-group ch2">
+                        <span class="ch-indicator ch2-dot"></span>
+                        <label>CH 2:</label>
+                        <select id="plotterCh2Source" class="plot-select">
+                            <option value="">None (Disabled)</option>
+                        </select>
+                        <select id="plotterCh2Signal" class="plot-select-sm">
+                            <option value="V">Voltage (V)</option>
+                            <option value="I">Current (I)</option>
+                            <option value="P">Power (W)</option>
+                        </select>
+                    </div>
+                    <div class="plotter-timebase-group">
+                        <label>Timebase:</label>
+                        <select id="plotterTimebase" class="plot-select-sm">
+                            <option value="0.05">50 ms</option>
+                            <option value="0.1" selected>100 ms</option>
+                            <option value="0.25">250 ms</option>
+                            <option value="0.5">500 ms</option>
+                            <option value="1.0">1.0 s</option>
+                            <option value="2.0">2.0 s</option>
+                            <option value="5.0">5.0 s</option>
+                        </select>
+                        <label class="plotter-checkbox-label">
+                            <input type="checkbox" id="plotterAutoScale" checked>
+                            <span>Auto-scale</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Graph Canvas -->
+                <div class="plotter-canvas-container">
+                    <canvas id="plotterCanvas"></canvas>
+                </div>
+
+                <!-- Live Telemetry / Measurement HUD -->
+                <div class="plotter-stats-bar" id="plotterStatsBar">
+                    <div class="stat-card ch1-stat">
+                        <span class="stat-lbl">CH1 Vpp:</span> <span id="statCh1Vpp">0.00 V</span>
+                        <span class="stat-lbl">Vrms:</span> <span id="statCh1Vrms">0.00 V</span>
+                        <span class="stat-lbl">Avg:</span> <span id="statCh1Avg">0.00 V</span>
+                        <span class="stat-lbl">Freq:</span> <span id="statCh1Freq">-- Hz</span>
+                    </div>
+                    <div class="stat-card ch2-stat">
+                        <span class="stat-lbl">CH2 Vpp:</span> <span id="statCh2Vpp">0.00 V</span>
+                        <span class="stat-lbl">Vrms:</span> <span id="statCh2Vrms">0.00 V</span>
+                        <span class="stat-lbl">Avg:</span> <span id="statCh2Avg">0.00 V</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
 
     <script type="module" src="../editor/canvas.js"></script>

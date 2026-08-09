@@ -1368,3 +1368,227 @@ canvas {
   background: rgba(210, 153, 34, 0.12);
   border-color: rgba(210, 153, 34, 0.25);
 }
+
+/* ===== Real-time Oscilloscope / Waveform Plotter Modal ===== */
+.plotter-panel {
+  position: fixed;
+  bottom: 74px;
+  right: 24px;
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  background: rgba(13, 17, 23, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 229, 255, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7), 0 0 24px rgba(0, 255, 136, 0.08);
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  user-select: none;
+  transition: box-shadow 0.2s ease;
+}
+
+.plotter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(22, 27, 34, 0.95);
+  border-bottom: 1px solid var(--border-primary);
+  cursor: grab;
+}
+
+.plotter-header:active {
+  cursor: grabbing;
+}
+
+.plotter-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+
+.plotter-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(0, 255, 136, 0.15);
+  color: #00ff88;
+  border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
+.plotter-badge.paused {
+  background: rgba(210, 153, 34, 0.15);
+  color: #ffb703;
+  border-color: rgba(210, 153, 34, 0.3);
+}
+
+.plotter-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plot-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.plot-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.plot-icon-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-secondary);
+}
+
+.plotter-body {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  gap: 8px;
+}
+
+.plotter-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-secondary);
+  font-size: 11px;
+}
+
+.plotter-ch-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ch-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.ch1-dot {
+  background: #00ff88;
+  box-shadow: 0 0 6px #00ff88;
+}
+
+.ch2-dot {
+  background: #ffb703;
+  box-shadow: 0 0 6px #ffb703;
+}
+
+.plot-select {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  max-width: 130px;
+  outline: none;
+}
+
+.plot-select-sm {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 3px 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  outline: none;
+}
+
+.plotter-timebase-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.plotter-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.plotter-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  background: #0a0d12;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+#plotterCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.plotter-stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  flex: 1;
+}
+
+.stat-card.ch1-stat {
+  border-left: 3px solid #00ff88;
+}
+
+.stat-card.ch2-stat {
+  border-left: 3px solid #ffb703;
+}
+
+.stat-lbl {
+  color: var(--text-muted);
+  font-weight: 500;
+}

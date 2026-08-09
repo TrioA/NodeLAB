@@ -5,6 +5,122 @@ import {
   runtimeState
 } from './utils.js';
 
+import {
+  recordSimulationSample
+} from './plot.js';
+
+// ===== Direct On-Canvas Slider Helpers for POT and RHEO =====
+export function getComponentSliderGeometry(comp) {
+  if (!comp || (comp.type !== 'POT' && comp.type !== 'RHEO') || !comp.n1 || !comp.n2) {
+    return null;
+  }
+  const mx = (comp.n1.x + comp.n2.x) / 2;
+  const my = (comp.n1.y + comp.n2.y) / 2;
+  const dx = comp.n2.x - comp.n1.x;
+  const dy = comp.n2.y - comp.n1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len;
+  const uy = dy / len;
+  const nx = -uy;
+  const ny = ux;
+
+  const normalOffset = 26;
+  const trackLen = 42;
+  const halfLen = trackLen / 2;
+
+  const cx = mx + nx * normalOffset;
+  const cy = my + ny * normalOffset;
+
+  const startX = cx - ux * halfLen;
+  const startY = cy - uy * halfLen;
+  const endX = cx + ux * halfLen;
+  const endY = cy + uy * halfLen;
+
+  const wiper = Math.max(0, Math.min(1, comp.wiper !== undefined ? comp.wiper : 0.5));
+  const thumbX = startX + (endX - startX) * wiper;
+  const thumbY = startY + (endY - startY) * wiper;
+
+  return {
+    center: { x: cx, y: cy },
+    start: { x: startX, y: startY },
+    end: { x: endX, y: endY },
+    thumb: { x: thumbX, y: thumbY },
+    thumbRadius: 7,
+    trackWidth: trackLen,
+    trackHeight: 8,
+    dir: { x: ux, y: uy },
+    normal: { x: nx, y: ny },
+    angle: Math.atan2(dy, dx),
+    wiper
+  };
+}
+
+export function drawOnCanvasSlider(ctx2d, comp) {
+  const geom = getComponentSliderGeometry(comp);
+  if (!geom) return;
+
+  ctx2d.save();
+  ctx2d.translate(geom.center.x, geom.center.y);
+  ctx2d.rotate(geom.angle);
+
+  const w = geom.trackWidth;
+  const h = geom.trackHeight;
+  const halfW = w / 2;
+  const halfH = h / 2;
+  const wiper = geom.wiper;
+  const thumbX = -halfW + w * wiper;
+
+  // Background track pill
+  ctx2d.fillStyle = 'rgba(22, 27, 34, 0.9)';
+  ctx2d.strokeStyle = '#30363d';
+  ctx2d.lineWidth = 1.2;
+  ctx2d.beginPath();
+  if (typeof ctx2d.roundRect === 'function') {
+    ctx2d.roundRect(-halfW - 2, -halfH, w + 4, h, 4);
+  } else {
+    ctx2d.rect(-halfW - 2, -halfH, w + 4, h);
+  }
+  ctx2d.fill();
+  ctx2d.stroke();
+
+  // Active filled bar
+  const activeColor = comp.type === 'POT' ? '#00e5ff' : '#f39c12';
+  if (wiper > 0.01) {
+    ctx2d.fillStyle = comp.type === 'POT' ? 'rgba(0, 229, 255, 0.45)' : 'rgba(243, 156, 18, 0.45)';
+    ctx2d.beginPath();
+    if (typeof ctx2d.roundRect === 'function') {
+      ctx2d.roundRect(-halfW, -halfH + 1.5, w * wiper, h - 3, 2.5);
+    } else {
+      ctx2d.rect(-halfW, -halfH + 1.5, w * wiper, h - 3);
+    }
+    ctx2d.fill();
+  }
+
+  // Thumb handle
+  ctx2d.shadowColor = activeColor;
+  ctx2d.shadowBlur = 6;
+  ctx2d.fillStyle = activeColor;
+  ctx2d.beginPath();
+  ctx2d.arc(thumbX, 0, 5.5, 0, Math.PI * 2);
+  ctx2d.fill();
+
+  ctx2d.fillStyle = '#0d1117';
+  ctx2d.beginPath();
+  ctx2d.arc(thumbX, 0, 2, 0, Math.PI * 2);
+  ctx2d.fill();
+  ctx2d.shadowBlur = 0;
+
+  // Value badge text
+  ctx2d.font = 'bold 8.5px monospace';
+  ctx2d.textAlign = 'center';
+  ctx2d.textBaseline = 'middle';
+  ctx2d.fillStyle = '#e6edf3';
+  const pctText = `${Math.round(wiper * 100)}%`;
+  ctx2d.fillText(pctText, 0, -h - 4);
+
+  ctx2d.restore();
+}
+
 // ===== Component registry =====
 export const COMPONENT_TYPES = {
   R: {
@@ -78,16 +194,18 @@ export const COMPONENT_TYPES = {
       return 1e-6;
     },
     stamp(A, b, comp, ctx) {
-      let { n1Idx, n2Idx } = ctx;
-      let G = comp.value / settingsState.settings.simDT;
+      const { n1Idx, n2Idx } = ctx;
+      const dt = Math.max(1e-6, settingsState.settings.simDT || 0.005);
+      const G = comp.value / dt;
 
       A[n1Idx][n1Idx] += G;
       A[n2Idx][n2Idx] += G;
       A[n1Idx][n2Idx] -= G;
       A[n2Idx][n1Idx] -= G;
 
-      b[n1Idx] += comp.historyCurrent;
-      b[n2Idx] -= comp.historyCurrent;
+      const I_eq = (comp.capacitorVoltage || 0) * G;
+      b[n1Idx] += I_eq;
+      b[n2Idx] -= I_eq;
     },
     draw(ctx2d, comp) {
       const mx = (comp.n1.x + comp.n2.x) / 2;
@@ -341,7 +459,7 @@ export const COMPONENT_TYPES = {
     getDefaultValue() { return 0; },
     stamp(G, I, comp, ctxStamp) {
       const { n1Idx, n2Idx } = ctxStamp;
-      const resistance = comp.closed ? 0.001 : 1e9;
+      const resistance = comp.closed ? 0.001 : 1e8;
       const g = 1 / resistance;
 
       G[n1Idx][n1Idx] += g;
@@ -501,13 +619,115 @@ export const COMPONENT_TYPES = {
   },
   POT: {
     key: 'POT',
-    label: 'Potentiometer',
+    label: 'Potentiometer (3 Pin)',
     inputId: 'potentiometerValue',
     getDefaultValue() { return 10000; },
     stamp(G, I, comp, ctxStamp) {
+      const { n1Idx, n2Idx, n3Idx, value } = ctxStamp;
+      const w = Math.max(0.0001, Math.min(0.9999, comp.wiper !== undefined ? comp.wiper : 0.5));
+      const totalR = Math.max(0.01, value || 10000);
+      const r13 = Math.max(0.001, totalR * w);
+      const r32 = Math.max(0.001, totalR * (1 - w));
+      comp.r13 = r13;
+      comp.r32 = r32;
+
+      if (n3Idx !== undefined && n3Idx !== null && n3Idx !== n1Idx && n3Idx !== n2Idx) {
+        const g13 = 1 / r13;
+        const g32 = 1 / r32;
+
+        G[n1Idx][n1Idx] += g13;
+        G[n3Idx][n3Idx] += g13;
+        G[n1Idx][n3Idx] -= g13;
+        G[n3Idx][n1Idx] -= g13;
+
+        G[n3Idx][n3Idx] += g32;
+        G[n2Idx][n2Idx] += g32;
+        G[n3Idx][n2Idx] -= g32;
+        G[n2Idx][n3Idx] -= g32;
+      } else {
+        const g = 1 / totalR;
+        G[n1Idx][n1Idx] += g;
+        G[n2Idx][n2Idx] += g;
+        G[n1Idx][n2Idx] -= g;
+        G[n2Idx][n1Idx] -= g;
+      }
+    },
+    draw(ctx2d, comp) {
+      const mx = (comp.n1.x + comp.n2.x) / 2;
+      const my = (comp.n1.y + comp.n2.y) / 2;
+      const dx = comp.n2.x - comp.n1.x;
+      const dy = comp.n2.y - comp.n1.y;
+      const angle = Math.atan2(dy, dx);
+      const totalLen = 34;
+      const halfLen = totalLen / 2;
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      // Resistor zigzag body between Terminals 1 and 2
+      ctx2d.strokeStyle = '#f39c12';
+      ctx2d.lineWidth = 2.2;
+      ctx2d.lineCap = 'round';
+      ctx2d.lineJoin = 'round';
+
+      ctx2d.beginPath();
+      ctx2d.moveTo(-halfLen, 0);
+      const numPeaks = 5;
+      const segmentLen = totalLen / numPeaks;
+      const peakAmp = 7;
+      for (let i = 0; i < numPeaks; i++) {
+        const xStart = -halfLen + i * segmentLen;
+        const xMid = xStart + segmentLen * 0.5;
+        const xEnd = xStart + segmentLen;
+        const dir = (i % 2 === 0) ? -1 : 1;
+        ctx2d.lineTo(xMid, dir * peakAmp);
+        ctx2d.lineTo(xEnd, 0);
+      }
+      ctx2d.stroke();
+
+      // Wiper contact arrow pointing into the resistive track at wiper ratio
+      const wiper = Math.max(0.01, Math.min(0.99, comp.wiper !== undefined ? comp.wiper : 0.5));
+      const wiperX = -halfLen + wiper * totalLen;
+
+      ctx2d.strokeStyle = '#00e5ff';
+      ctx2d.fillStyle = '#00e5ff';
+      ctx2d.lineWidth = 2.0;
+
+      // Wiper arrow
+      ctx2d.beginPath();
+      ctx2d.moveTo(wiperX, -14);
+      ctx2d.lineTo(wiperX, -3);
+      ctx2d.stroke();
+
+      ctx2d.beginPath();
+      ctx2d.moveTo(wiperX, -1);
+      ctx2d.lineTo(wiperX - 3.5, -6);
+      ctx2d.lineTo(wiperX + 3.5, -6);
+      ctx2d.closePath();
+      ctx2d.fill();
+
+      // Wiper terminal dot
+      ctx2d.fillStyle = '#00e5ff';
+      ctx2d.beginPath();
+      ctx2d.arc(wiperX, -14, 2.5, 0, Math.PI * 2);
+      ctx2d.fill();
+
+      ctx2d.restore();
+
+      // Draw direct on-canvas slider
+      drawOnCanvasSlider(ctx2d, comp);
+    }
+  },
+  RHEO: {
+    key: 'RHEO',
+    label: 'Rheostat (2 Pin)',
+    inputId: 'rheostatValue',
+    getDefaultValue() { return 10000; },
+    stamp(G, I, comp, ctxStamp) {
       const { n1Idx, n2Idx, value } = ctxStamp;
-      const wiper = comp.wiper !== undefined ? comp.wiper : 0.5;
-      const totalR = value || 10000;
+      const wiper = Math.max(0.0001, Math.min(1.0, comp.wiper !== undefined ? comp.wiper : 0.5));
+      const totalR = Math.max(0.01, value || 10000);
       const rEff = Math.max(0.001, totalR * wiper);
       comp.effectiveResistance = rEff;
       const g = 1 / rEff;
@@ -523,6 +743,7 @@ export const COMPONENT_TYPES = {
       const dy = comp.n2.y - comp.n1.y;
       const angle = Math.atan2(dy, dx);
       const totalLen = 34;
+      const halfLen = totalLen / 2;
 
       ctx2d.save();
       ctx2d.translate(mx, my);
@@ -534,7 +755,6 @@ export const COMPONENT_TYPES = {
       ctx2d.lineJoin = 'round';
 
       ctx2d.beginPath();
-      const halfLen = totalLen / 2;
       ctx2d.moveTo(-halfLen, 0);
       const numPeaks = 5;
       const segmentLen = totalLen / numPeaks;
@@ -549,25 +769,27 @@ export const COMPONENT_TYPES = {
       }
       ctx2d.stroke();
 
-      const wiper = comp.wiper !== undefined ? comp.wiper : 0.5;
-      const wiperX = -halfLen + wiper * totalLen;
+      // Diagonal arrow across resistor (standard rheostat symbol)
       ctx2d.strokeStyle = '#00e5ff';
       ctx2d.fillStyle = '#00e5ff';
       ctx2d.lineWidth = 1.8;
-
       ctx2d.beginPath();
-      ctx2d.moveTo(wiperX - 4, -14);
-      ctx2d.lineTo(wiperX, -4);
+      ctx2d.moveTo(-halfLen + 4, 12);
+      ctx2d.lineTo(halfLen - 2, -12);
       ctx2d.stroke();
 
+      // Arrow head
       ctx2d.beginPath();
-      ctx2d.moveTo(wiperX, -3);
-      ctx2d.lineTo(wiperX - 3, -8);
-      ctx2d.lineTo(wiperX + 1, -6);
+      ctx2d.moveTo(halfLen, -14);
+      ctx2d.lineTo(halfLen - 7, -10);
+      ctx2d.lineTo(halfLen - 3, -6);
       ctx2d.closePath();
       ctx2d.fill();
 
       ctx2d.restore();
+
+      // Draw direct on-canvas slider
+      drawOnCanvasSlider(ctx2d, comp);
     }
   },
   BAT: {
@@ -1192,6 +1414,307 @@ export const COMPONENT_TYPES = {
 
       ctx2d.restore();
     }
+  },
+  NMOS: {
+    key: 'NMOS',
+    label: 'NMOS Transistor (3 Pin)',
+    inputId: 'nmosVth',
+    getDefaultValue() { return 1.5; },
+    stamp(G, I, comp, ctxStamp) {
+      const { n1Idx: dIdx, n2Idx: gIdx, n3Idx: sIdx } = ctxStamp;
+      if (dIdx == null || gIdx == null || sIdx == null) return;
+
+      const vd = comp.n1?.vx || 0;
+      const vg = comp.n2?.vx || 0;
+      const vs = comp.n3?.vx || 0;
+
+      const vth = comp.vth !== undefined ? comp.vth : (comp.value || 1.5);
+      const kp = comp.kp !== undefined ? comp.kp : 0.02;
+      const lambda = comp.lambda !== undefined ? comp.lambda : 0.01;
+
+      let vgs = vg - vs;
+      let vds = vd - vs;
+
+      let sign = 1;
+      let dNodeIdx = dIdx;
+      let sNodeIdx = sIdx;
+      if (vds < 0) {
+        sign = -1;
+        vds = -vds;
+        vgs = vg - vd;
+        dNodeIdx = sIdx;
+        sNodeIdx = dIdx;
+      }
+
+      let id = 0;
+      let g_eff = 1e-9;
+      let region = 'Cutoff';
+
+      if (vgs <= vth) {
+        region = 'Cutoff';
+        id = 0;
+        g_eff = 1e-9;
+      } else {
+        const vov = vgs - vth;
+        if (vds < vov) {
+          region = 'Linear / Triode';
+          id = kp * (vov * vds - 0.5 * vds * vds) * (1 + lambda * vds);
+          g_eff = id / Math.max(vds, 1e-4);
+        } else {
+          region = 'Saturation';
+          id = 0.5 * kp * vov * vov * (1 + lambda * vds);
+          g_eff = id / Math.max(vds, 0.01);
+        }
+      }
+
+      comp.operatingRegion = region;
+      comp.vgs = vg - vs;
+      comp.vds = vd - vs;
+      comp.current = sign * id;
+
+      g_eff = Math.max(1e-9, g_eff);
+
+      G[dNodeIdx][dNodeIdx] += g_eff;
+      G[sNodeIdx][sNodeIdx] += g_eff;
+      G[dNodeIdx][sNodeIdx] -= g_eff;
+      G[sNodeIdx][dNodeIdx] -= g_eff;
+
+      G[gIdx][gIdx] += 1e-12;
+    },
+    draw(ctx2d, comp) {
+      const d = comp.n1;
+      const g = comp.n2;
+      const s = comp.n3;
+      if (!d || !s) return;
+
+      const mx = (d.x + s.x) / 2;
+      const my = (d.y + s.y) / 2;
+      const dx = s.x - d.x;
+      const dy = s.y - d.y;
+      const angle = Math.atan2(dy, dx);
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      let gateSide = -1;
+      if (g) {
+        const gx = g.x - mx;
+        const gy = g.y - my;
+        const gLocalY = -Math.sin(angle) * gx + Math.cos(angle) * gy;
+        gateSide = gLocalY < 0 ? -1 : 1;
+      }
+
+      ctx2d.strokeStyle = '#00e5ff';
+      ctx2d.fillStyle = '#00e5ff';
+      ctx2d.lineWidth = 2.0;
+      ctx2d.lineCap = 'round';
+
+      // 1. Drain contact lead (from D at -14 to channel bar)
+      ctx2d.beginPath();
+      ctx2d.moveTo(-14, 0);
+      ctx2d.lineTo(-7, 0);
+      ctx2d.lineTo(-7, gateSide * 5);
+      ctx2d.stroke();
+
+      // 2. Source contact lead (from S at +14 to channel bar)
+      ctx2d.beginPath();
+      ctx2d.moveTo(14, 0);
+      ctx2d.lineTo(7, 0);
+      ctx2d.lineTo(7, gateSide * 5);
+      ctx2d.stroke();
+
+      // 3. Segmented Channel bars (Enhancement mode)
+      const barY = gateSide * 5;
+      ctx2d.lineWidth = 2.5;
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, barY); ctx2d.lineTo(-5, barY);
+      ctx2d.moveTo(-2.5, barY); ctx2d.lineTo(2.5, barY);
+      ctx2d.moveTo(5, barY); ctx2d.lineTo(10, barY);
+      ctx2d.stroke();
+
+      // 4. Gate oxide plate (parallel with dielectric gap)
+      const gateBarY = gateSide * 9;
+      ctx2d.lineWidth = 2.0;
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, gateBarY);
+      ctx2d.lineTo(10, gateBarY);
+      ctx2d.stroke();
+
+      // Gate lead
+      ctx2d.beginPath();
+      ctx2d.moveTo(0, gateBarY);
+      ctx2d.lineTo(0, gateSide * 16);
+      ctx2d.stroke();
+
+      // Gate terminal dot
+      ctx2d.beginPath();
+      ctx2d.arc(0, gateSide * 16, 2.5, 0, Math.PI * 2);
+      ctx2d.fill();
+
+      // 5. Source Arrow (pointing outwards on Source for NMOS)
+      ctx2d.lineWidth = 1.8;
+      const arrowDir = gateSide * 1;
+      ctx2d.beginPath();
+      ctx2d.moveTo(7, barY);
+      ctx2d.lineTo(3, barY + arrowDir * 4);
+      ctx2d.lineTo(7, barY + arrowDir * 2);
+      ctx2d.closePath();
+      ctx2d.fill();
+
+      ctx2d.restore();
+    }
+  },
+  PMOS: {
+    key: 'PMOS',
+    label: 'PMOS Transistor (3 Pin)',
+    inputId: 'pmosVth',
+    getDefaultValue() { return -1.5; },
+    stamp(G, I, comp, ctxStamp) {
+      const { n1Idx: dIdx, n2Idx: gIdx, n3Idx: sIdx } = ctxStamp;
+      if (dIdx == null || gIdx == null || sIdx == null) return;
+
+      const vd = comp.n1?.vx || 0;
+      const vg = comp.n2?.vx || 0;
+      const vs = comp.n3?.vx || 0;
+
+      const vth = comp.vth !== undefined ? comp.vth : (comp.value || -1.5);
+      const absVth = Math.abs(vth);
+      const kp = comp.kp !== undefined ? comp.kp : 0.02;
+      const lambda = comp.lambda !== undefined ? comp.lambda : 0.01;
+
+      let vsg = vs - vg;
+      let vsd = vs - vd;
+
+      let sign = 1;
+      let sNodeIdx = sIdx;
+      let dNodeIdx = dIdx;
+      if (vsd < 0) {
+        sign = -1;
+        vsd = -vsd;
+        vsg = vd - vg;
+        sNodeIdx = dIdx;
+        dNodeIdx = sIdx;
+      }
+
+      let isd = 0;
+      let g_eff = 1e-9;
+      let region = 'Cutoff';
+
+      if (vsg <= absVth) {
+        region = 'Cutoff';
+        isd = 0;
+        g_eff = 1e-9;
+      } else {
+        const vov = vsg - absVth;
+        if (vsd < vov) {
+          region = 'Linear / Triode';
+          isd = kp * (vov * vsd - 0.5 * vsd * vsd) * (1 + lambda * vsd);
+          g_eff = isd / Math.max(vsd, 1e-4);
+        } else {
+          region = 'Saturation';
+          isd = 0.5 * kp * vov * vov * (1 + lambda * vsd);
+          g_eff = isd / Math.max(vsd, 0.01);
+        }
+      }
+
+      comp.operatingRegion = region;
+      comp.vgs = vg - vs;
+      comp.vds = vd - vs;
+      comp.current = sign * isd;
+
+      g_eff = Math.max(1e-9, g_eff);
+
+      G[sNodeIdx][sNodeIdx] += g_eff;
+      G[dNodeIdx][dNodeIdx] += g_eff;
+      G[sNodeIdx][dNodeIdx] -= g_eff;
+      G[dNodeIdx][sNodeIdx] -= g_eff;
+
+      G[gIdx][gIdx] += 1e-12;
+    },
+    draw(ctx2d, comp) {
+      const d = comp.n1;
+      const g = comp.n2;
+      const s = comp.n3;
+      if (!d || !s) return;
+
+      const mx = (d.x + s.x) / 2;
+      const my = (d.y + s.y) / 2;
+      const dx = s.x - d.x;
+      const dy = s.y - d.y;
+      const angle = Math.atan2(dy, dx);
+
+      ctx2d.save();
+      ctx2d.translate(mx, my);
+      ctx2d.rotate(angle);
+
+      let gateSide = -1;
+      if (g) {
+        const gx = g.x - mx;
+        const gy = g.y - my;
+        const gLocalY = -Math.sin(angle) * gx + Math.cos(angle) * gy;
+        gateSide = gLocalY < 0 ? -1 : 1;
+      }
+
+      ctx2d.strokeStyle = '#e056fd';
+      ctx2d.fillStyle = '#e056fd';
+      ctx2d.lineWidth = 2.0;
+      ctx2d.lineCap = 'round';
+
+      // 1. Drain lead
+      ctx2d.beginPath();
+      ctx2d.moveTo(-14, 0);
+      ctx2d.lineTo(-7, 0);
+      ctx2d.lineTo(-7, gateSide * 5);
+      ctx2d.stroke();
+
+      // 2. Source lead
+      ctx2d.beginPath();
+      ctx2d.moveTo(14, 0);
+      ctx2d.lineTo(7, 0);
+      ctx2d.lineTo(7, gateSide * 5);
+      ctx2d.stroke();
+
+      // 3. Channel bars
+      const barY = gateSide * 5;
+      ctx2d.lineWidth = 2.5;
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, barY); ctx2d.lineTo(-5, barY);
+      ctx2d.moveTo(-2.5, barY); ctx2d.lineTo(2.5, barY);
+      ctx2d.moveTo(5, barY); ctx2d.lineTo(10, barY);
+      ctx2d.stroke();
+
+      // 4. Gate oxide plate
+      const gateBarY = gateSide * 9;
+      ctx2d.lineWidth = 2.0;
+      ctx2d.beginPath();
+      ctx2d.moveTo(-10, gateBarY);
+      ctx2d.lineTo(10, gateBarY);
+      ctx2d.stroke();
+
+      // 5. Inversion Bubble on Gate for PMOS
+      const bubbleCenterY = gateSide * 12;
+      ctx2d.fillStyle = '#161b22';
+      ctx2d.strokeStyle = '#e056fd';
+      ctx2d.beginPath();
+      ctx2d.arc(0, bubbleCenterY, 3, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.stroke();
+
+      // Gate lead out from bubble
+      ctx2d.beginPath();
+      ctx2d.moveTo(0, bubbleCenterY + gateSide * 3);
+      ctx2d.lineTo(0, gateSide * 16);
+      ctx2d.stroke();
+
+      // Gate terminal dot
+      ctx2d.fillStyle = '#e056fd';
+      ctx2d.beginPath();
+      ctx2d.arc(0, gateSide * 16, 2.5, 0, Math.PI * 2);
+      ctx2d.fill();
+
+      ctx2d.restore();
+    }
   }
 };
 
@@ -1236,7 +1759,9 @@ export function getCircuitGroups() {
   }
 
   for (const c of circuitState.components) {
-    union(c.n1.id, c.n2.id);
+    if (c.n1 && c.n2) union(c.n1.id, c.n2.id);
+    if (c.n1 && c.n3) union(c.n1.id, c.n3.id);
+    if (c.n2 && c.n3) union(c.n2.id, c.n3.id);
   }
 
   const groupsMap = new Map();
@@ -1249,7 +1774,9 @@ export function getCircuitGroups() {
   }
 
   for (const c of circuitState.components) {
-    const rep = find(c.n1.id);
+    const mainNode = c.n1 || c.n2 || c.n3;
+    if (!mainNode) continue;
+    const rep = find(mainNode.id);
     if (groupsMap.has(rep)) groupsMap.get(rep).components.push(c);
   }
   return Array.from(groupsMap.values());
@@ -1274,9 +1801,21 @@ export function calculateWireCurrents(groupNodes, groupComponents) {
     let current = 0;
     for (const c of groupComponents) {
       if (c.type === 'W') continue;
-      const val = Number.isFinite(c.current) ? c.current : 0;
-      if (c.n1 === n) current += val;
-      if (c.n2 === n) current -= val;
+      if (c.type === 'POT') {
+        if (c.n1 === n) current += Number.isFinite(c.current1) ? c.current1 : 0;
+        if (c.n2 === n) current -= Number.isFinite(c.current2) ? c.current2 : 0;
+        if (c.n3 === n) current -= Number.isFinite(c.currentWiper) ? c.currentWiper : 0;
+      } else if (c.type === 'NMOS') {
+        if (c.n1 === n) current += Number.isFinite(c.currentDrain) ? c.currentDrain : 0;
+        if (c.n3 === n) current -= Number.isFinite(c.currentDrain) ? c.currentDrain : 0;
+      } else if (c.type === 'PMOS') {
+        if (c.n3 === n) current += Number.isFinite(c.currentSource) ? c.currentSource : 0;
+        if (c.n1 === n) current -= Number.isFinite(c.currentSource) ? c.currentSource : 0;
+      } else {
+        const val = Number.isFinite(c.current) ? c.current : 0;
+        if (c.n1 === n) current += val;
+        if (c.n2 === n) current -= val;
+      }
     }
     I_ext[n.id] = current;
   }
@@ -1406,17 +1945,24 @@ export function solveCircuit(showSolveErrorFn) {
     for (const c of groupComponents) {
       const def = COMPONENT_TYPES[c.type];
       if (!def || typeof def.stamp !== 'function') continue;
-      const n1Idx = c.n1.electricalIndex;
-      const n2Idx = c.n2.electricalIndex;
+      const n1Idx = c.n1?.electricalIndex;
+      const n2Idx = c.n2?.electricalIndex;
+      const n3Idx = c.n3?.electricalIndex;
       const ctxStamp = {
         n1Idx,
         n2Idx,
+        n3Idx,
         value: c.value,
         N,
         vSrcMap,
         vSrcBaseIndex
       };
       def.stamp(G, I, c, ctxStamp);
+    }
+
+    // SPICE Gmin diagonal regularization to prevent floating / open-switch matrix singularity
+    for (let i = 0; i < N; i++) {
+      G[i][i] += 1e-11;
     }
 
     if (N > 0) {
@@ -1464,29 +2010,81 @@ export function solveCircuit(showSolveErrorFn) {
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
         } else if (c.type === 'VM') {
           const rIn = c.value || 1e9;
-          const rawCurr = (c.n1.vx - c.n2.vx) / rIn;
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / rIn;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
-          c.measuredVoltage = c.n1.vx - c.n2.vx;
+          c.measuredVoltage = (c.n1?.vx || 0) - (c.n2?.vx || 0);
         } else if (c.type === 'AM') {
           const rShunt = c.value || 0.001;
-          const rawCurr = (c.n1.vx - c.n2.vx) / rShunt;
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / rShunt;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
           c.measuredCurrent = c.current;
         } else if (c.type === 'FUSE') {
-          const r = c.blown ? 1e9 : (c.coldResistance || 0.01);
-          const rawCurr = (c.n1.vx - c.n2.vx) / r;
+          const r = c.blown ? 1e8 : (c.coldResistance || 0.01);
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / r;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
           const rating = c.value || 1.0;
           if (!c.blown && Math.abs(c.current) > rating) {
             c.blown = true;
           }
         } else if (c.type === 'POT') {
-          const rEff = c.effectiveResistance || 5000;
-          const rawCurr = (c.n1.vx - c.n2.vx) / rEff;
+          const v1 = c.n1 ? (c.n1.vx || 0) : 0;
+          const v2 = c.n2 ? (c.n2.vx || 0) : 0;
+          const v3 = c.n3 ? (c.n3.vx || 0) : ((v1 + v2) / 2);
+          const r13 = c.r13 || ((c.value || 10000) * 0.5);
+          const r32 = c.r32 || ((c.value || 10000) * 0.5);
+          c.current1 = (v1 - v3) / r13;
+          c.current2 = (v3 - v2) / r32;
+          c.currentWiper = c.current1 - c.current2;
+          c.current = c.current1;
+        } else if (c.type === 'RHEO') {
+          const rEff = c.effectiveResistance || ((c.value || 10000) * 0.5);
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / rEff;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
+        } else if (c.type === 'NMOS') {
+          const vd = c.n1 ? (c.n1.vx || 0) : 0;
+          const vg = c.n2 ? (c.n2.vx || 0) : 0;
+          const vs = c.n3 ? (c.n3.vx || 0) : 0;
+          const vth = c.vth !== undefined ? c.vth : (c.value || 1.5);
+          const kp = c.kp !== undefined ? c.kp : 0.02;
+          const lambda = c.lambda !== undefined ? c.lambda : 0.01;
+          const vgs = vg - vs;
+          const vds = vd - vs;
+          let id = 0;
+          if (vgs > vth) {
+            const vov = vgs - vth;
+            if (vds > 0) {
+              if (vds < vov) id = kp * (vov * vds - 0.5 * vds * vds) * (1 + lambda * vds);
+              else id = 0.5 * kp * vov * vov * (1 + lambda * vds);
+            }
+          }
+          c.current = id;
+          c.currentDrain = id;
+          c.currentSource = -id;
+          c.currentGate = 0;
+        } else if (c.type === 'PMOS') {
+          const vd = c.n1 ? (c.n1.vx || 0) : 0;
+          const vg = c.n2 ? (c.n2.vx || 0) : 0;
+          const vs = c.n3 ? (c.n3.vx || 0) : 0;
+          const vth = Math.abs(c.vth !== undefined ? c.vth : (c.value || -1.5));
+          const kp = c.kp !== undefined ? c.kp : 0.02;
+          const lambda = c.lambda !== undefined ? c.lambda : 0.01;
+          const vsg = vs - vg;
+          const vsd = vs - vd;
+          let isd = 0;
+          if (vsg > vth) {
+            const vov = vsg - vth;
+            if (vsd > 0) {
+              if (vsd < vov) isd = kp * (vov * vsd - 0.5 * vsd * vsd) * (1 + lambda * vsd);
+              else isd = 0.5 * kp * vov * vov * (1 + lambda * vsd);
+            }
+          }
+          c.current = isd;
+          c.currentSource = isd;
+          c.currentDrain = -isd;
+          c.currentGate = 0;
         } else if (c.type === 'LAMP') {
           const r = Math.max(0.1, c.value || 50);
-          const vDiff = c.n1.vx - c.n2.vx;
+          const vDiff = (c.n1?.vx || 0) - (c.n2?.vx || 0);
           const rawCurr = vDiff / r;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
           const p = vDiff * c.current;
@@ -1496,14 +2094,14 @@ export function solveCircuit(showSolveErrorFn) {
           c.displayBrightness = (c.displayBrightness || 0) + (targetBrightness - (c.displayBrightness || 0)) * 0.2;
         } else if (c.type === 'TH') {
           const rT = c.effectiveResistance || 10000;
-          const rawCurr = (c.n1.vx - c.n2.vx) / rT;
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / rT;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
         } else if (c.type === 'LDR') {
           const rEff = c.effectiveResistance || 10000;
-          const rawCurr = (c.n1.vx - c.n2.vx) / rEff;
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / rEff;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
         } else if (c.type === 'RELAY') {
-          const vDiff = Math.abs(c.n1.vx - c.n2.vx);
+          const vDiff = Math.abs((c.n1?.vx || 0) - (c.n2?.vx || 0));
           const vThresh = c.value || c.threshold || 3.0;
           if (!c.isEnergized && vDiff >= vThresh) {
             c.isEnergized = true;
@@ -1512,8 +2110,8 @@ export function solveCircuit(showSolveErrorFn) {
           }
           const isClosed = c.contactType === 'NC' ? !c.isEnergized : !!c.isEnergized;
           c.closed = isClosed;
-          const r = isClosed ? 0.001 : 1e9;
-          const rawCurr = (c.n1.vx - c.n2.vx) / r;
+          const r = isClosed ? 0.001 : 1e8;
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / r;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
         } else if (
           c.type === 'R' ||
@@ -1532,10 +2130,10 @@ export function solveCircuit(showSolveErrorFn) {
           }
 
           if (c.type === 'SW') {
-            resistance = c.closed ? 0.001 : 1e9;
+            resistance = c.closed ? 0.001 : 1e8;
           }
 
-          const rawCurr = (c.n1.vx - c.n2.vx) / resistance;
+          const rawCurr = ((c.n1?.vx || 0) - (c.n2?.vx || 0)) / resistance;
           c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
 
           if (c.type === 'LED') {
@@ -1545,11 +2143,14 @@ export function solveCircuit(showSolveErrorFn) {
           }
         }
         else if (c.type === 'C') {
-          const voltageNow = c.n1.vx - c.n2.vx;
-          const rawCurr = c.value * ((voltageNow - c.capacitorVoltage) / settingsState.settings.simDT);
-          c.current = Number.isFinite(rawCurr) ? rawCurr : 0;
-          c.capacitorVoltage += (voltageNow - c.capacitorVoltage) * 0.15;
-          c.historyCurrent = (c.value / settingsState.settings.simDT) * c.capacitorVoltage;
+          const dt = Math.max(1e-6, settingsState.settings.simDT || 0.005);
+          const G = c.value / dt;
+          const vPrev = c.capacitorVoltage || 0;
+          const vNow = (c.n1?.vx || 0) - (c.n2?.vx || 0);
+          const safeVNow = Number.isFinite(vNow) ? vNow : vPrev;
+          c.current = G * (safeVNow - vPrev);
+          c.capacitorVoltage = safeVNow;
+          c.historyCurrent = G * safeVNow;
         }
       }
       calculateWireCurrents(groupNodes, groupComponents);
@@ -1559,6 +2160,8 @@ export function solveCircuit(showSolveErrorFn) {
   if (hasError && typeof showSolveErrorFn === 'function') {
     showSolveErrorFn('Some circuit components could not be solved');
   }
+
+  recordSimulationSample();
 }
 
 let prevTime = 0;

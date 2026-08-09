@@ -10,6 +10,7 @@ import {
 
 import { saveSettings } from './history.js';
 import { COMPONENT_TYPES, stepSimulation, stepSimulationBackward } from './simulation.js';
+import { initPlotter, plotTargetComponent } from './plot.js';
 
 // Centralized DOM reference dictionary with lazy getters
 export const dom = {
@@ -308,6 +309,9 @@ export function updatePropertiesBox() {
     let valueLabel = 'Value';
     if (c.type === 'R') valueLabel = 'Resistance (Ω)';
     else if (c.type === 'POT') valueLabel = 'Total Resistance (Ω)';
+    else if (c.type === 'RHEO') valueLabel = 'Max Resistance (Ω)';
+    else if (c.type === 'NMOS') valueLabel = 'Threshold Vth (V)';
+    else if (c.type === 'PMOS') valueLabel = 'Threshold Vth (V)';
     else if (c.type === 'BAT') valueLabel = 'Battery Voltage (V)';
     else if (c.type === 'ISRC') valueLabel = 'Current (A)';
     else if (c.type === 'VM') valueLabel = 'Input Impedance (Ω)';
@@ -325,9 +329,10 @@ export function updatePropertiesBox() {
     else if (c.type === 'SW') valueLabel = 'Resistance (Ω)';
     else if (c.type === 'ACV') valueLabel = 'Amplitude (V)';
 
-    const v1 = c.n1.vx?.toFixed(2) ?? '-';
-    const v2 = c.n2.vx?.toFixed(2) ?? '-';
-    const diff = (c.n1.vx - c.n2.vx)?.toFixed(2) ?? '-';
+    const v1 = c.n1?.vx?.toFixed(2) ?? '-';
+    const v2 = c.n2?.vx?.toFixed(2) ?? '-';
+    const v3 = c.n3?.vx?.toFixed(2) ?? '-';
+    const diff = ((c.n1?.vx || 0) - (c.n2?.vx || 0)).toFixed(2);
 
     const isVoltage = c.type === 'V' || c.type === 'BAT' || c.type === 'ISRC';
     const canFlip =
@@ -347,6 +352,34 @@ export function updatePropertiesBox() {
 
     if (c.type === 'POT') {
       const wiperPct = Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100);
+      const totalR = c.value || 10000;
+      const r13 = c.r13 || (totalR * (wiperPct / 100));
+      const r32 = c.r32 || (totalR * (1 - wiperPct / 100));
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Wiper Position (<span id="propWiperLabel">${wiperPct}%</span>)</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="range" id="propWiperSlider" min="0" max="100" value="${wiperPct}" style="flex:1;" />
+            <input type="number" id="propWiperVal" min="0" max="100" value="${wiperPct}" style="width:55px;" />
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>Resistance Split (R1→W / W→R2)</label>
+          <div style="font-weight:bold;font-family:monospace;color:#00e5ff;font-size:12px;" id="propPotSplitText">
+            ${r13.toFixed(1)} Ω / ${r32.toFixed(1)} Ω
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>Wiper Node Voltage (Pin 3)</label>
+          <div style="font-weight:bold;font-family:monospace;color:#00e5ff;" id="propPotWiperVoltText">
+            ${v3} V
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'RHEO') {
+      const wiperPct = Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100);
       extraFieldsHtml += `
         <div class="properties-field">
           <label>Wiper Position (<span id="propWiperLabel">${wiperPct}%</span>)</label>
@@ -359,6 +392,36 @@ export function updatePropertiesBox() {
           <label>Effective Resistance</label>
           <div style="font-weight:bold;font-family:monospace;color:#f39c12;" id="propEffectiveRText">
             ${((c.effectiveResistance || c.value * 0.5)).toFixed(1)} Ω
+          </div>
+        </div>
+      `;
+    }
+
+    if (c.type === 'NMOS' || c.type === 'PMOS') {
+      const vthVal = c.vth !== undefined ? c.vth : (c.type === 'PMOS' ? -1.5 : 1.5);
+      const kpVal = c.kp !== undefined ? c.kp : 0.02;
+      const lambdaVal = c.lambda !== undefined ? c.lambda : 0.01;
+      const region = c.operatingRegion || 'Cutoff';
+      extraFieldsHtml += `
+        <div class="properties-field">
+          <label>Transconductance Kp (A/V²)</label>
+          <input type="number" id="propMosKp" value="${kpVal}" step="0.001" min="0.00001" />
+        </div>
+        <div class="properties-field">
+          <label>Channel Modulation λ (1/V)</label>
+          <input type="number" id="propMosLambda" value="${lambdaVal}" step="0.001" min="0" />
+        </div>
+        <div class="properties-field">
+          <label>Operating Region</label>
+          <div id="propMosRegion" style="font-weight:bold;color:${region === 'Saturation' ? '#2ecc71' : (region.includes('Linear') ? '#f39c12' : '#888')};font-size:13px;">
+            ${region}
+          </div>
+        </div>
+        <div class="properties-field">
+          <label>MOSFET Voltages (D / G / S)</label>
+          <div style="font-family:monospace;font-size:11px;" id="propMosVoltText">
+            V_D: ${v1}V | V_G: ${v2}V | V_S: ${v3}V<br>
+            V_GS: ${((c.n2?.vx || 0) - (c.n3?.vx || 0)).toFixed(2)}V | V_DS: ${((c.n1?.vx || 0) - (c.n3?.vx || 0)).toFixed(2)}V
           </div>
         </div>
       `;
@@ -568,8 +631,18 @@ export function updatePropertiesBox() {
         ${formatCurrent(c.current || 0)}
       </div>
     </div>
+    <button type="button" class="tool-btn" id="propPlotBtn" style="background:#1f6feb;color:#fff;margin-top:6px;width:100%;display:flex;align-items:center;justify-content:center;gap:6px;">
+      <i data-lucide="line-chart" style="width:14px;height:14px;"></i> Plot Signal
+    </button>
     <button class="delete-btn" id="propDelete">Delete Component</button>
   `;
+
+    if (window.lucide) window.lucide.createIcons();
+
+    document.getElementById('propPlotBtn')?.addEventListener('click', () => {
+      plotTargetComponent(c);
+    });
+
     document.getElementById('propName')?.addEventListener('input', (e) => {
       if (_pushUndoState) _pushUndoState();
       c.name = e.target.value.trim() || `${c.type}${c.id}`;
@@ -579,10 +652,17 @@ export function updatePropertiesBox() {
     document.getElementById('propValue')?.addEventListener('input', (e) => {
       if (_pushUndoState) _pushUndoState();
       const v = parseFloat(e.target.value);
-      if (!isNaN(v) && v > 0) {
+      if (!isNaN(v)) {
         c.value = v;
         if (c.type === 'POT') {
+          const w = c.wiper !== undefined ? c.wiper : 0.5;
+          c.r13 = Math.max(0.001, c.value * w);
+          c.r32 = Math.max(0.001, c.value * (1 - w));
+          c.effectiveResistance = c.r13;
+        } else if (c.type === 'RHEO') {
           c.effectiveResistance = Math.max(0.001, c.value * (c.wiper !== undefined ? c.wiper : 0.5));
+        } else if (c.type === 'NMOS' || c.type === 'PMOS') {
+          c.vth = v;
         } else if (c.type === 'TH') {
           const Tk = (c.temperature !== undefined ? c.temperature : 25) + 273.15;
           c.effectiveResistance = Math.max(0.1, c.value * Math.exp((c.beta || 3950) * (1 / Tk - 1 / 298.15)));
@@ -601,7 +681,30 @@ export function updatePropertiesBox() {
       const labelEl = document.getElementById('propWiperLabel');
       const updateWiper = (pct) => {
         if (_pushUndoState) _pushUndoState();
-        c.wiper = Math.max(0, Math.min(100, pct)) / 100;
+        c.wiper = Math.max(0.001, Math.min(0.999, pct / 100));
+        const totalR = c.value || 10000;
+        c.r13 = Math.max(0.001, totalR * c.wiper);
+        c.r32 = Math.max(0.001, totalR * (1 - c.wiper));
+        c.effectiveResistance = c.r13;
+        if (slider) slider.value = pct;
+        if (valInput) valInput.value = pct;
+        if (labelEl) labelEl.textContent = `${Math.round(pct)}%`;
+        const splitEl = document.getElementById('propPotSplitText');
+        if (splitEl) splitEl.textContent = `${c.r13.toFixed(1)} Ω / ${c.r32.toFixed(1)} Ω`;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      };
+      slider?.addEventListener('input', (e) => updateWiper(parseFloat(e.target.value) || 0));
+      valInput?.addEventListener('input', (e) => updateWiper(parseFloat(e.target.value) || 0));
+    }
+
+    // Rheostat handlers
+    if (c.type === 'RHEO') {
+      const slider = document.getElementById('propWiperSlider');
+      const valInput = document.getElementById('propWiperVal');
+      const labelEl = document.getElementById('propWiperLabel');
+      const updateWiper = (pct) => {
+        if (_pushUndoState) _pushUndoState();
+        c.wiper = Math.max(0.001, Math.min(1.0, pct / 100));
         c.effectiveResistance = Math.max(0.001, (c.value || 10000) * c.wiper);
         if (slider) slider.value = pct;
         if (valInput) valInput.value = pct;
@@ -612,6 +715,22 @@ export function updatePropertiesBox() {
       };
       slider?.addEventListener('input', (e) => updateWiper(parseFloat(e.target.value) || 0));
       valInput?.addEventListener('input', (e) => updateWiper(parseFloat(e.target.value) || 0));
+    }
+
+    // MOSFET handlers
+    if (c.type === 'NMOS' || c.type === 'PMOS') {
+      document.getElementById('propMosKp')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v > 0) c.kp = v;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
+      document.getElementById('propMosLambda')?.addEventListener('input', (e) => {
+        if (_pushUndoState) _pushUndoState();
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v >= 0) c.lambda = v;
+        if (_saveCircuitToURL) _saveCircuitToURL();
+      });
     }
 
     // Fuse handlers
@@ -800,18 +919,48 @@ export function updateSelectedPropertiesDynamics() {
     if (el) el.textContent = `${obj.vx?.toFixed(2) ?? '-'} V`;
   } else {
     const c = obj;
-    const v1 = c.n1.vx?.toFixed(2) ?? '-';
-    const v2 = c.n2.vx?.toFixed(2) ?? '-';
-    const diff = (c.n1.vx - c.n2.vx)?.toFixed(2) ?? '-';
+    const v1 = c.n1?.vx?.toFixed(2) ?? '-';
+    const v2 = c.n2?.vx?.toFixed(2) ?? '-';
+    const v3 = c.n3?.vx?.toFixed(2) ?? '-';
+    const diff = ((c.n1?.vx || 0) - (c.n2?.vx || 0)).toFixed(2);
     const elVolt = document.getElementById('propVoltText');
     if (elVolt) elVolt.textContent = `V1: ${v1}V | V2: ${v2}V (ΔV: ${diff}V)`;
     const elCurr = document.getElementById('propCurrText');
     if (elCurr) elCurr.textContent = formatCurrent(c.current || 0);
 
+    if (c.type === 'POT') {
+      const splitEl = document.getElementById('propPotSplitText');
+      if (splitEl && c.r13 != null && c.r32 != null) {
+        splitEl.textContent = `${c.r13.toFixed(1)} Ω / ${c.r32.toFixed(1)} Ω`;
+      }
+      const wiperVEl = document.getElementById('propPotWiperVoltText');
+      if (wiperVEl) wiperVEl.textContent = `${v3} V`;
+    }
+
+    if (c.type === 'RHEO') {
+      const effEl = document.getElementById('propEffectiveRText');
+      if (effEl && c.effectiveResistance != null) {
+        effEl.textContent = `${c.effectiveResistance.toFixed(1)} Ω`;
+      }
+    }
+
+    if (c.type === 'NMOS' || c.type === 'PMOS') {
+      const regionEl = document.getElementById('propMosRegion');
+      if (regionEl) {
+        const region = c.operatingRegion || 'Cutoff';
+        regionEl.textContent = region;
+        regionEl.style.color = region === 'Saturation' ? '#2ecc71' : (region.includes('Linear') ? '#f39c12' : '#888');
+      }
+      const voltEl = document.getElementById('propMosVoltText');
+      if (voltEl) {
+        voltEl.innerHTML = `V_D: ${v1}V | V_G: ${v2}V | V_S: ${v3}V<br>V_GS: ${((c.n2?.vx || 0) - (c.n3?.vx || 0)).toFixed(2)}V | V_DS: ${((c.n1?.vx || 0) - (c.n3?.vx || 0)).toFixed(2)}V`;
+      }
+    }
+
     if (c.type === 'VM') {
       const elVM = document.getElementById('propVoltMeasureText');
       if (elVM) {
-        const vmVolt = (c.n1.vx != null && c.n2.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(3);
+        const vmVolt = (c.n1?.vx != null && c.n2?.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(3);
         elVM.textContent = `${vmVolt} V`;
       }
     }
@@ -970,6 +1119,9 @@ export function setMode(mode) {
     CREATE_SWITCH: 'addSwitch',
     CREATE_GROUND: "addGround",
     CREATE_POT: 'addPotentiometer',
+    CREATE_RHEO: 'addRheostat',
+    CREATE_NMOS: 'addNMOS',
+    CREATE_PMOS: 'addPMOS',
     CREATE_BATTERY: 'addBattery',
     CREATE_CURRENT_SOURCE: 'addCurrentSource',
     CREATE_VOLTMETER: 'addVoltmeter',
@@ -991,6 +1143,9 @@ export function setMode(mode) {
     CREATE_SWITCH: 'SW',
     CREATE_GROUND: "GND",
     CREATE_POT: 'POT',
+    CREATE_RHEO: 'RHEO',
+    CREATE_NMOS: 'NMOS',
+    CREATE_PMOS: 'PMOS',
     CREATE_BATTERY: 'BAT',
     CREATE_CURRENT_SOURCE: 'ISRC',
     CREATE_VOLTMETER: 'VM',
@@ -1030,6 +1185,9 @@ export function setMode(mode) {
     } else if (editorState.activeTool === 'POT') {
       const wiperEl = document.getElementById('potentiometerWiper');
       if (wiperEl) wiperEl.style.display = 'inline-block';
+    } else if (editorState.activeTool === 'RHEO') {
+      const rheoWiperEl = document.getElementById('rheostatWiper');
+      if (rheoWiperEl) rheoWiperEl.style.display = 'inline-block';
     } else if (editorState.activeTool === 'LAMP') {
       const lampPwrEl = document.getElementById('lampRatedPower');
       if (lampPwrEl) lampPwrEl.style.display = 'inline-block';
@@ -1049,7 +1207,7 @@ export function getCurrentToolValue(toolType) {
   const inputEl = def.inputId ? document.getElementById(def.inputId) : null;
   if (!inputEl) return def.getDefaultValue();
   const v = parseFloat(inputEl.value);
-  if (isNaN(v) || v <= 0) return def.getDefaultValue();
+  if (isNaN(v)) return def.getDefaultValue();
   return v;
 }
 
@@ -1080,29 +1238,49 @@ export function initUI(callbacks) {
 
   if (chkVoltageColoring) {
     chkVoltageColoring.checked = ds.useVoltageColoring !== false;
-    chkVoltageColoring.addEventListener('change', () => { ds.useVoltageColoring = chkVoltageColoring.checked; });
+    chkVoltageColoring.addEventListener('change', () => {
+      ds.useVoltageColoring = chkVoltageColoring.checked;
+      if (callbacks.saveSettings) callbacks.saveSettings();
+    });
   }
   if (chkVoltages) {
-    chkVoltages.checked = ds.showNodeVoltages;
-    chkVoltages.addEventListener('change', () => { ds.showNodeVoltages = chkVoltages.checked; });
+    chkVoltages.checked = ds.showNodeVoltages !== false;
+    chkVoltages.addEventListener('change', () => {
+      ds.showNodeVoltages = chkVoltages.checked;
+      if (callbacks.saveSettings) callbacks.saveSettings();
+    });
   }
   if (chkNames) {
-    chkNames.checked = ds.showComponentNames;
-    chkNames.addEventListener('change', () => { ds.showComponentNames = chkNames.checked; });
+    chkNames.checked = ds.showComponentNames !== false;
+    chkNames.addEventListener('change', () => {
+      ds.showComponentNames = chkNames.checked;
+      if (callbacks.saveSettings) callbacks.saveSettings();
+    });
   }
   if (chkValues) {
-    chkValues.checked = ds.showComponentValues;
-    chkValues.addEventListener('change', () => { ds.showComponentValues = chkValues.checked; });
+    chkValues.checked = ds.showComponentValues !== false;
+    chkValues.addEventListener('change', () => {
+      ds.showComponentValues = chkValues.checked;
+      if (callbacks.saveSettings) callbacks.saveSettings();
+    });
   }
   if (chkFlow) {
     chkFlow.checked = ds.showCurrentFlow === 'always';
-    chkFlow.addEventListener('change', () => { ds.showCurrentFlow = chkFlow.checked ? 'always' : 'ctrl'; });
+    chkFlow.addEventListener('change', () => {
+      ds.showCurrentFlow = chkFlow.checked ? 'always' : 'ctrl';
+      if (callbacks.saveSettings) callbacks.saveSettings();
+    });
   }
   if (chkWireCurrents) {
-    chkWireCurrents.checked = ds.showWireCurrents;
-    chkWireCurrents.addEventListener('change', () => { ds.showWireCurrents = chkWireCurrents.checked; });
+    chkWireCurrents.checked = ds.showWireCurrents === true;
+    chkWireCurrents.addEventListener('change', () => {
+      ds.showWireCurrents = chkWireCurrents.checked;
+      if (callbacks.saveSettings) callbacks.saveSettings();
+    });
   }
 
+  // Initialize Oscilloscope
+  initPlotter();
 
   const hamburgerBtn = dom.hamburgerBtn;
   const saveMenu = dom.saveMenu;
@@ -1317,6 +1495,9 @@ export function initUI(callbacks) {
 
   setupToolButton('addResistor', 'CREATE_RESISTOR');
   setupToolButton('addPotentiometer', 'CREATE_POT');
+  setupToolButton('addRheostat', 'CREATE_RHEO');
+  setupToolButton('addNMOS', 'CREATE_NMOS');
+  setupToolButton('addPMOS', 'CREATE_PMOS');
   setupToolButton('addVoltage', 'CREATE_VOLTAGE');
   setupToolButton('addBattery', 'CREATE_BATTERY');
   setupToolButton('addACV', 'CREATE_ACV');

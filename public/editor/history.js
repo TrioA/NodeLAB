@@ -4,7 +4,8 @@ import {
   settingsState,
   MAX_HISTORY,
   SAVE_KEY,
-  DEFAULT_SETTINGS
+  DEFAULT_SETTINGS,
+  DEFAULT_DISPLAY_SETTINGS
 } from './utils.js';
 
 export const undoStack = [];
@@ -54,7 +55,8 @@ export function redo(clearSelectionFn) {
 export function rebuildNextTypeIds() {
   const maxIds = {
     R: 0, V: 0, C: 0, D: 0, LED: 0, SW: 0, ACV: 0, W: 0, GND: 0,
-    POT: 0, BAT: 0, ISRC: 0, VM: 0, AM: 0, FUSE: 0, LAMP: 0, TH: 0, LDR: 0, RELAY: 0
+    POT: 0, RHEO: 0, BAT: 0, ISRC: 0, VM: 0, AM: 0, FUSE: 0, LAMP: 0, TH: 0, LDR: 0, RELAY: 0,
+    NMOS: 0, PMOS: 0
   };
   for (const c of circuitState.components) {
     if (!c.name) continue;
@@ -78,7 +80,8 @@ export function exportCircuitData() {
     nodes: circuitState.nodes.map(n => ({
       id: n.id,
       x: n.x,
-      y: n.y
+      y: n.y,
+      isGround: !!n.isGround
     })),
 
     components: circuitState.components.map(c => ({
@@ -86,8 +89,9 @@ export function exportCircuitData() {
       type: c.type,
       name: c.name,
 
-      n1: c.n1.id,
-      n2: c.n2.id,
+      n1: c.n1 ? c.n1.id : null,
+      n2: c.n2 ? c.n2.id : null,
+      n3: c.n3 ? c.n3.id : null,
 
       value: c.value,
 
@@ -111,7 +115,11 @@ export function exportCircuitData() {
       threshold: c.threshold,
       contactType: c.contactType,
       coilResistance: c.coilResistance,
-      isEnergized: !!c.isEnergized
+      isEnergized: !!c.isEnergized,
+
+      vth: c.vth,
+      kp: c.kp,
+      lambda: c.lambda
     })),
 
     nextId: circuitState.nextId,
@@ -131,6 +139,7 @@ export function importCircuitData(data) {
       x: n.x,
       y: n.y,
       vx: 0,
+      isGround: !!n.isGround,
       electricalNode: null,
       electricalIndex: 0,
       hasError: false
@@ -143,15 +152,17 @@ export function importCircuitData(data) {
   for (const c of data.components) {
     const n1 = nodeMap.get(Number(c.n1));
     const n2 = nodeMap.get(Number(c.n2));
+    const n3 = c.n3 != null ? nodeMap.get(Number(c.n3)) : null;
 
-    if (!n1 || !n2) continue;
+    if (!n1 && !n2) continue;
 
     circuitState.components.push({
       id: c.id,
       type: c.type,
       name: c.name || `${c.type}${c.id}`,
-      n1: n1,
-      n2: n2,
+      n1: n1 || n2,
+      n2: n2 || n1,
+      n3: n3 || null,
       value: c.value ?? 1,
       polarity: c.polarity ?? 1,
       frequency: c.frequency ?? 50,
@@ -172,11 +183,15 @@ export function importCircuitData(data) {
       contactType: c.contactType ?? 'NO',
       coilResistance: c.coilResistance ?? 100,
       isEnergized: !!c.isEnergized,
+      vth: c.vth !== undefined ? c.vth : (c.type === 'PMOS' ? -1.5 : 1.5),
+      kp: c.kp ?? 0.02,
+      lambda: c.lambda ?? 0.01,
       current: 0,
       displayBrightness: 0,
       capacitorVoltage: 0,
       historyCurrent: 0,
-      isOn: false
+      isOn: false,
+      hasError: false
     });
   }
 
@@ -208,8 +223,8 @@ export function saveCircuitToURL() {
     circuitState.components.map(c => [
       c.type,                         // [0]
       c.id,                           // [1] component id
-      nodeIndexMap.get(c.n1.id),      // [2] n1 index into nodes array
-      nodeIndexMap.get(c.n2.id),      // [3] n2 index into nodes array
+      nodeIndexMap.get(c.n1?.id),     // [2] n1 index into nodes array
+      nodeIndexMap.get(c.n2?.id),     // [3] n2 index into nodes array
       c.value,                        // [4]
       c.polarity || 0,                // [5]
       c.frequency || 0,               // [6]
@@ -218,6 +233,7 @@ export function saveCircuitToURL() {
       c.closed ? 1 : 0,               // [9]
       c.name || "",                   // [10] component name
       {
+        n3: c.n3 ? nodeIndexMap.get(c.n3.id) : null,
         wiper: c.wiper,
         temperature: c.temperature,
         beta: c.beta,
@@ -231,7 +247,10 @@ export function saveCircuitToURL() {
         threshold: c.threshold,
         contactType: c.contactType,
         coilResistance: c.coilResistance,
-        isEnergized: c.isEnergized ? 1 : 0
+        isEnergized: c.isEnergized ? 1 : 0,
+        vth: c.vth,
+        kp: c.kp,
+        lambda: c.lambda
       }                               // [11] extra component properties
     ]),
 
@@ -294,18 +313,20 @@ export function loadCircuitFromURL() {
       const n1 = nodeRefs[c[2]];
       const n2 = nodeRefs[c[3]];
 
-      if (!n1 || !n2) {
+      if (!n1 && !n2) {
         console.warn('Skipping component with missing node refs:', c);
         continue;
       }
 
       const extra = c[11] || {};
+      const n3 = (extra.n3 !== undefined && extra.n3 !== null && nodeRefs[extra.n3]) ? nodeRefs[extra.n3] : null;
 
       circuitState.components.push({
         type: c[0],
         id: c[1],           // component id restored
-        n1,
-        n2,
+        n1: n1 || n2,
+        n2: n2 || n1,
+        n3: n3,
         value: c[4],
         polarity: c[5] || 1,
         frequency: c[6] || 50,
@@ -327,6 +348,9 @@ export function loadCircuitFromURL() {
         contactType: extra.contactType ?? 'NO',
         coilResistance: extra.coilResistance ?? 100,
         isEnergized: !!extra.isEnergized,
+        vth: extra.vth !== undefined ? extra.vth : (c[0] === 'PMOS' ? -1.5 : 1.5),
+        kp: extra.kp ?? 0.02,
+        lambda: extra.lambda ?? 0.01,
         current: 0,
         displayBrightness: 0,
         capacitorVoltage: 0,
@@ -418,27 +442,48 @@ export function loadCircuitSave(save, clearSelectionFn) {
   }
 }
 
-export function loadSettings(updateSliderUiFn) {
+export function loadSettings(updateUiFn) {
   try {
     const raw = localStorage.getItem("nodeLabSettings");
 
     if (!raw) {
       settingsState.settings = { ...DEFAULT_SETTINGS };
-      if (typeof updateSliderUiFn === 'function') updateSliderUiFn();
+      editorState.displaySettings = { ...DEFAULT_DISPLAY_SETTINGS };
+      if (typeof updateUiFn === 'function') updateUiFn();
       return;
     }
 
-    settingsState.settings = {
-      ...DEFAULT_SETTINGS,
-      ...JSON.parse(raw)
-    };
-    if (typeof updateSliderUiFn === 'function') updateSliderUiFn();
-  } catch {
+    const data = JSON.parse(raw);
+    if (data.settings) {
+      settingsState.settings = { ...DEFAULT_SETTINGS, ...data.settings };
+    } else if (data.subSteps !== undefined) {
+      settingsState.settings = { ...DEFAULT_SETTINGS, ...data };
+    } else {
+      settingsState.settings = { ...DEFAULT_SETTINGS };
+    }
+
+    if (data.displaySettings) {
+      editorState.displaySettings = { ...DEFAULT_DISPLAY_SETTINGS, ...data.displaySettings };
+    }
+
+    settingsState.settings.simDT = 0.05 / (settingsState.settings.subSteps || 8);
+    if (typeof updateUiFn === 'function') updateUiFn();
+  } catch (err) {
+    console.warn("Failed to load settings:", err);
     settingsState.settings = { ...DEFAULT_SETTINGS };
-    if (typeof updateSliderUiFn === 'function') updateSliderUiFn();
+    editorState.displaySettings = { ...DEFAULT_DISPLAY_SETTINGS };
+    if (typeof updateUiFn === 'function') updateUiFn();
   }
 }
 
 export function saveSettings() {
-  localStorage.setItem("nodeLabSettings", JSON.stringify(settingsState.settings));
+  try {
+    const bundle = {
+      settings: settingsState.settings,
+      displaySettings: editorState.displaySettings
+    };
+    localStorage.setItem("nodeLabSettings", JSON.stringify(bundle));
+  } catch (err) {
+    console.warn("Failed to save settings:", err);
+  }
 }

@@ -1,28 +1,46 @@
 // ===== Shared Application State =====
 
+export const DEFAULT_DISPLAY_SETTINGS = {
+  useVoltageColoring: true,
+  showNodeVoltages: true,
+  showComponentNames: true,
+  showComponentValues: true,
+  showCurrentFlow: 'ctrl', // 'always' | 'ctrl' | 'never'
+  showWireCurrents: false
+};
+
+export const DEFAULT_SETTINGS = {
+  subSteps: 8,
+  simDT: 0.05 / 8,
+};
+
 export const circuitState = {
   nodes: [],          // {x,y,vx,id,electricalNode,electricalIndex,hasError}
-  components: [],     // {type,n1,n2,value,id,current,hasError,name}
+  components: [],     // {type,n1,n2,n3,value,id,current,hasError,name}
   nextId: 1,
   nextTypeIds: {
     R: 1, V: 1, C: 1, D: 1, LED: 1, SW: 1, ACV: 1, W: 1, GND: 1,
-    POT: 1, BAT: 1, ISRC: 1, VM: 1, AM: 1, FUSE: 1, LAMP: 1, TH: 1, LDR: 1, RELAY: 1
+    POT: 1, RHEO: 1, BAT: 1, ISRC: 1, VM: 1, AM: 1, FUSE: 1, LAMP: 1, TH: 1, LDR: 1, RELAY: 1,
+    NMOS: 1, PMOS: 1
   }
 };
 
 export const editorState = {
-  placing: null,      // {type,value,n1,n2}
+  placing: null,      // {type,value,n1,n2,n3}
   draggingNode: null,
   draggingGroup: false,
   dragGroupOffsets: [],
   dragSelectStartX: 0,
   dragSelectStartY: 0,
-  activeTool: null,   // 'R'|'V'|'W' or null
+  activeTool: null,   // 'R'|'V'|'W' etc or null
   mode: 'SELECT',     // SELECT | CREATE_NODE | CREATE_RESISTOR | ...
   selectedObject: null,
   multiSelected: [],
   selectionBox: null,
   dragSelecting: false,
+
+  // Direct slider dragging on canvas (for POT / RHEO)
+  draggingSlider: null, // { comp, startVal, startMousePos, ... }
 
   mouse: { x: 0, y: 0, rawX: 0, rawY: 0 },
   ctrlPressed: false,
@@ -34,21 +52,11 @@ export const editorState = {
   lastMouseY: 0,
   scale: 1,
 
-  displaySettings: {
-    useVoltageColoring: true,
-    showNodeVoltages: true,
-    showComponentNames: true,
-    showComponentValues: true,
-    showCurrentFlow: 'ctrl', // 'always' | 'ctrl' | 'never'
-    showWireCurrents: false
-  }
+  displaySettings: { ...DEFAULT_DISPLAY_SETTINGS }
 };
 
 export const settingsState = {
-  settings: {
-    subSteps: 20,
-    simDT: 0.05 / 20,
-  },
+  settings: { ...DEFAULT_SETTINGS },
 };
 
 export const runtimeState = {
@@ -61,7 +69,8 @@ export function generateComponentName(type) {
   if (!circuitState.nextTypeIds) {
     circuitState.nextTypeIds = {
       R: 1, V: 1, C: 1, D: 1, LED: 1, SW: 1, ACV: 1, W: 1, GND: 1,
-      POT: 1, BAT: 1, ISRC: 1, VM: 1, AM: 1, FUSE: 1, LAMP: 1, TH: 1, LDR: 1, RELAY: 1
+      POT: 1, RHEO: 1, BAT: 1, ISRC: 1, VM: 1, AM: 1, FUSE: 1, LAMP: 1, TH: 1, LDR: 1, RELAY: 1,
+      NMOS: 1, PMOS: 1
     };
   }
   const prefix = type;
@@ -74,11 +83,6 @@ export function generateComponentName(type) {
 export const GRID_SIZE = 10;
 export const MAX_HISTORY = 100;
 export const SAVE_KEY = 'circuitsim_saves';
-
-export const DEFAULT_SETTINGS = {
-  subSteps: 8,
-  simDT: 0.05 / 8,
-};
 
 // ===== Math & Geometry Helpers =====
 export function dist(a, b) {
@@ -184,7 +188,7 @@ export function wireVoltageColor(v) {
 export function getConnectionsForNode(node) {
   let count = 0;
   for (const c of circuitState.components) {
-    if (c.n1 === node || c.n2 === node) count++;
+    if (c.n1 === node || c.n2 === node || (c.n3 && c.n3 === node)) count++;
   }
   return count;
 }
@@ -200,12 +204,17 @@ export function getConnectedNodes(startNode) {
     visited.add(node);
 
     for (const c of circuitState.components) {
-      if (c.n1 === node && !visited.has(c.n2)) {
-        stack.push(c.n2);
+      if (c.n1 === node) {
+        if (!visited.has(c.n2)) stack.push(c.n2);
+        if (c.n3 && !visited.has(c.n3)) stack.push(c.n3);
       }
-
-      if (c.n2 === node && !visited.has(c.n1)) {
-        stack.push(c.n1);
+      if (c.n2 === node) {
+        if (!visited.has(c.n1)) stack.push(c.n1);
+        if (c.n3 && !visited.has(c.n3)) stack.push(c.n3);
+      }
+      if (c.n3 && c.n3 === node) {
+        if (!visited.has(c.n1)) stack.push(c.n1);
+        if (!visited.has(c.n2)) stack.push(c.n2);
       }
     }
   }

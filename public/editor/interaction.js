@@ -30,7 +30,8 @@ import {
 
 import {
   stepSimulation,
-  stepSimulationBackward
+  stepSimulationBackward,
+  getComponentSliderGeometry
 } from './simulation.js';
 
 // ===== Hit Testing =====
@@ -51,7 +52,19 @@ export function findComponentAt(x, y) {
         return c;
       }
     }
-    if (distToSegment({ x, y }, c.n1, c.n2) < 16) return c;
+    if (c.n1 && c.n2 && distToSegment({ x, y }, c.n1, c.n2) < 16) return c;
+    if (c.n3 && c.n1 && c.n2) {
+      const mx = (c.n1.x + c.n2.x) / 2;
+      const my = (c.n1.y + c.n2.y) / 2;
+      if (distToSegment({ x, y }, { x: mx, y: my }, c.n3) < 16) return c;
+    }
+    if (c.type === 'POT' || c.type === 'RHEO') {
+      const geom = getComponentSliderGeometry(c);
+      if (geom) {
+        const dCenter = Math.hypot(x - geom.center.x, y - geom.center.y);
+        if (dCenter < 24) return c;
+      }
+    }
   }
   return null;
 }
@@ -110,6 +123,37 @@ export function addComponent(type, n1, n2, value, extra) {
     historyCurrent: 0
   };
 
+  if (type === 'POT' || type === 'NMOS' || type === 'PMOS') {
+    if (extra && extra.n3) {
+      comp.n3 = extra.n3;
+    } else {
+      const mx = (n1.x + n2.x) / 2;
+      const my = (n1.y + n2.y) / 2;
+      const dx = n2.x - n1.x;
+      const dy = n2.y - n1.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len;
+      const ny = dx / len;
+      const pin3X = snapToGrid(mx + nx * 40);
+      const pin3Y = snapToGrid(my + ny * 40);
+
+      let node3 = circuitState.nodes.find(n => n.x === pin3X && n.y === pin3Y);
+      if (!node3) {
+        node3 = {
+          x: pin3X,
+          y: pin3Y,
+          vx: 0,
+          id: circuitState.nextId++,
+          electricalNode: null,
+          electricalIndex: 0,
+          hasError: false
+        };
+        circuitState.nodes.push(node3);
+      }
+      comp.n3 = node3;
+    }
+  }
+
   if (type === 'V') {
     comp.polarity = 1;
   }
@@ -125,7 +169,24 @@ export function addComponent(type, n1, n2, value, extra) {
   }
   if (type === 'POT') {
     comp.wiper = (extra && extra.wiper !== undefined) ? extra.wiper : 0.5;
+    const totalR = value || 10000;
+    comp.r13 = Math.max(0.001, totalR * comp.wiper);
+    comp.r32 = Math.max(0.001, totalR * (1 - comp.wiper));
+    comp.effectiveResistance = comp.r13;
+  }
+  if (type === 'RHEO') {
+    comp.wiper = (extra && extra.wiper !== undefined) ? extra.wiper : 0.5;
     comp.effectiveResistance = Math.max(0.001, (value || 10000) * comp.wiper);
+  }
+  if (type === 'NMOS') {
+    comp.vth = (extra && extra.vth !== undefined) ? extra.vth : (value || 1.5);
+    comp.kp = (extra && extra.kp !== undefined) ? extra.kp : 0.02;
+    comp.lambda = (extra && extra.lambda !== undefined) ? extra.lambda : 0.01;
+  }
+  if (type === 'PMOS') {
+    comp.vth = (extra && extra.vth !== undefined) ? extra.vth : (value || -1.5);
+    comp.kp = (extra && extra.kp !== undefined) ? extra.kp : 0.02;
+    comp.lambda = (extra && extra.lambda !== undefined) ? extra.lambda : 0.01;
   }
   if (type === 'FUSE') {
     comp.blown = false;
@@ -188,7 +249,7 @@ export function deleteNode(node) {
     );
     if (!ok) return;
   }
-  circuitState.components = circuitState.components.filter(c => c.n1 !== node && c.n2 !== node);
+  circuitState.components = circuitState.components.filter(c => c.n1 !== node && c.n2 !== node && (!c.n3 || c.n3 !== node));
   circuitState.nodes = circuitState.nodes.filter(n => n !== node);
   if (editorState.selectedObject === node) {
     editorState.selectedObject = null;
@@ -474,6 +535,35 @@ export function initInteractions(canvasEl) {
     const { x, y } = screenToWorld(sx, sy);
     const gx = snapToGrid(x);
     const gy = snapToGrid(y);
+    const world = { x, y };
+
+    // Check if user clicked an on-canvas slider of a POT or RHEO
+    for (const c of circuitState.components) {
+      if (c.type === 'POT' || c.type === 'RHEO') {
+        const geom = getComponentSliderGeometry(c);
+        if (geom) {
+          const dThumb = Math.hypot(world.x - geom.thumb.x, world.y - geom.thumb.y);
+          const dTrack = distToSegment(world, geom.start, geom.end);
+          if (dThumb < 14 || dTrack < 10) {
+            pushUndoState();
+            editorState.draggingSlider = { comp: c, geom };
+            const t = ((world.x - geom.start.x) * geom.dir.x + (world.y - geom.start.y) * geom.dir.y) / geom.trackWidth;
+            c.wiper = Math.max(0.001, Math.min(0.999, t));
+            if (c.type === 'POT') {
+              const totalR = c.value || 10000;
+              c.r13 = Math.max(0.001, totalR * c.wiper);
+              c.r32 = Math.max(0.001, totalR * (1 - c.wiper));
+              c.effectiveResistance = c.r13;
+            } else if (c.type === 'RHEO') {
+              c.effectiveResistance = Math.max(0.001, (c.value || 10000) * c.wiper);
+            }
+            editorState.selectedObject = c;
+            updatePropertiesBox();
+            return;
+          }
+        }
+      }
+    }
 
     const hitNode = findNodeAt(gx, gy);
     const hitComp = findComponentAt(gx, gy);
@@ -562,6 +652,9 @@ export function initInteractions(canvasEl) {
       editorState.mode === 'CREATE_LED' ||
       editorState.mode === 'CREATE_SWITCH' ||
       editorState.mode === 'CREATE_POT' ||
+      editorState.mode === 'CREATE_RHEO' ||
+      editorState.mode === 'CREATE_NMOS' ||
+      editorState.mode === 'CREATE_PMOS' ||
       editorState.mode === 'CREATE_BATTERY' ||
       editorState.mode === 'CREATE_CURRENT_SOURCE' ||
       editorState.mode === 'CREATE_VOLTMETER' ||
@@ -586,6 +679,9 @@ export function initInteractions(canvasEl) {
         CREATE_SWITCH: 'SW',
         CREATE_GROUND: "GND",
         CREATE_POT: 'POT',
+        CREATE_RHEO: 'RHEO',
+        CREATE_NMOS: 'NMOS',
+        CREATE_PMOS: 'PMOS',
         CREATE_BATTERY: 'BAT',
         CREATE_CURRENT_SOURCE: 'ISRC',
         CREATE_VOLTMETER: 'VM',
@@ -607,6 +703,15 @@ export function initInteractions(canvasEl) {
         } else if (toolType === 'POT') {
           const wiperEl = document.getElementById('potentiometerWiper');
           extra.wiper = wiperEl ? (parseFloat(wiperEl.value) / 100 || 0.5) : 0.5;
+        } else if (toolType === 'RHEO') {
+          const wiperEl = document.getElementById('rheostatWiper');
+          extra.wiper = wiperEl ? (parseFloat(wiperEl.value) / 100 || 0.5) : 0.5;
+        } else if (toolType === 'NMOS') {
+          const vthEl = document.getElementById('nmosVth');
+          extra.vth = vthEl ? (parseFloat(vthEl.value) || 1.5) : 1.5;
+        } else if (toolType === 'PMOS') {
+          const vthEl = document.getElementById('pmosVth');
+          extra.vth = vthEl ? (parseFloat(vthEl.value) || -1.5) : -1.5;
         } else if (toolType === 'LAMP') {
           const pwrEl = document.getElementById('lampRatedPower');
           extra.ratedPower = pwrEl ? (parseFloat(pwrEl.value) || 1.0) : 1.0;
@@ -646,6 +751,23 @@ export function initInteractions(canvasEl) {
     const world = screenToWorld(sx, sy);
     editorState.mouse.x = snapToGrid(world.x);
     editorState.mouse.y = snapToGrid(world.y);
+
+    if (editorState.draggingSlider) {
+      const { comp, geom } = editorState.draggingSlider;
+      const currentGeom = getComponentSliderGeometry(comp) || geom;
+      const t = ((world.x - currentGeom.start.x) * currentGeom.dir.x + (world.y - currentGeom.start.y) * currentGeom.dir.y) / currentGeom.trackWidth;
+      comp.wiper = Math.max(0.001, Math.min(0.999, t));
+      if (comp.type === 'POT') {
+        const totalR = comp.value || 10000;
+        comp.r13 = Math.max(0.001, totalR * comp.wiper);
+        comp.r32 = Math.max(0.001, totalR * (1 - comp.wiper));
+        comp.effectiveResistance = comp.r13;
+      } else if (comp.type === 'RHEO') {
+        comp.effectiveResistance = Math.max(0.001, (comp.value || 10000) * comp.wiper);
+      }
+      updatePropertiesBox();
+      return;
+    }
 
     const mouseCoordsEl = dom.mouseCoords;
     if (mouseCoordsEl) {
@@ -708,6 +830,11 @@ export function initInteractions(canvasEl) {
   canvasEl.addEventListener('mouseup', () => {
     pointerDownPos = null;
     pointerDownOnEmpty = false;
+
+    if (editorState.draggingSlider) {
+      saveCircuitToURL();
+      editorState.draggingSlider = null;
+    }
 
     if (editorState.draggingNode) {
       saveCircuitToURL();

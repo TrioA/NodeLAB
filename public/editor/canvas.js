@@ -174,6 +174,7 @@ function drawSelectionOutline(obj) {
     } else if (
       obj.type === 'R' ||
       obj.type === 'POT' ||
+      obj.type === 'RHEO' ||
       obj.type === 'TH' ||
       obj.type === 'LDR' ||
       obj.type === 'FUSE'
@@ -209,6 +210,34 @@ function drawSelectionOutline(obj) {
       ctx.lineTo(mx - ux * rectLength / 2, my - uy * rectLength / 2);
       ctx.moveTo(obj.n2.x, obj.n2.y);
       ctx.lineTo(mx + ux * rectLength / 2, my + uy * rectLength / 2);
+      if (obj.n3) {
+        ctx.moveTo(obj.n3.x, obj.n3.y);
+        ctx.lineTo(mx, my);
+      }
+      ctx.stroke();
+    } else if (obj.type === 'NMOS' || obj.type === 'PMOS') {
+      const mx = (obj.n1.x + (obj.n3?.x ?? obj.n2.x)) / 2;
+      const my = (obj.n1.y + (obj.n3?.y ?? obj.n2.y)) / 2;
+      const glowColor = obj.type === 'NMOS' ? '#00e5ff' : '#e056fd';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = `rgba(0, 229, 255, ${selPulse * 0.4})`;
+      ctx.beginPath();
+      ctx.arc(mx, my, 22, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = glowColor;
+      ctx.shadowColor = glowColor;
+      ctx.shadowBlur = selBlur;
+      ctx.beginPath();
+      ctx.arc(mx, my, 22, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(obj.n1.x, obj.n1.y); ctx.lineTo(mx, my);
+      if (obj.n2) { ctx.moveTo(obj.n2.x, obj.n2.y); ctx.lineTo(mx, my); }
+      if (obj.n3) { ctx.moveTo(obj.n3.x, obj.n3.y); ctx.lineTo(mx, my); }
       ctx.stroke();
     } else if (
       obj.type === 'V' ||
@@ -497,6 +526,10 @@ function draw() {
       ctx.lineTo(lead1EndX, lead1EndY);
       ctx.moveTo(lead2StartX, lead2StartY);
       ctx.lineTo(c.n2.x, c.n2.y);
+      if (c.n3) {
+        ctx.moveTo(c.n3.x, c.n3.y);
+        ctx.lineTo(mx, my);
+      }
       ctx.stroke();
     }
   }
@@ -597,6 +630,9 @@ function draw() {
         let valStr = `${c.value}`;
         if (c.type === 'R') valStr += 'Ω';
         else if (c.type === 'POT') valStr = `${c.value}Ω (${Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100)}%)`;
+        else if (c.type === 'RHEO') valStr = `${c.value}Ω (${Math.round((c.wiper !== undefined ? c.wiper : 0.5) * 100)}%)`;
+        else if (c.type === 'NMOS') valStr = `Vth=${c.vth ?? 1.5}V (${c.operatingRegion || 'Active'})`;
+        else if (c.type === 'PMOS') valStr = `Vth=${c.vth ?? -1.5}V (${c.operatingRegion || 'Active'})`;
         else if (c.type === 'BAT') valStr = `${c.value}V`;
         else if (c.type === 'ISRC') valStr = `${c.value}A`;
         else if (c.type === 'VM') valStr = `${(c.n1.vx != null && c.n2.vx != null ? Math.abs(c.n1.vx - c.n2.vx) : 0).toFixed(2)}V`;
@@ -934,7 +970,17 @@ function init() {
     }
   }
 
-  // Initialize UI & Interactions
+  // 1. Load saved settings first so displaySettings and simulation parameters are restored
+  loadSettings(() => {
+    const subStepsSlider = dom.subStepsSlider;
+    const subStepsValue = dom.subStepsValue;
+    if (subStepsSlider && subStepsValue) {
+      subStepsSlider.value = settingsState.settings.subSteps;
+      subStepsValue.textContent = settingsState.settings.subSteps;
+    }
+  });
+
+  // 2. Initialize UI & Interactions (checkboxes will read the restored settings)
   initUI({
     pushUndoState,
     saveCircuitToURL,
@@ -947,15 +993,6 @@ function init() {
   });
 
   initInteractions(canvas);
-
-  loadSettings(() => {
-    const subStepsSlider = dom.subStepsSlider;
-    const subStepsValue = dom.subStepsValue;
-    if (subStepsSlider && subStepsValue) {
-      subStepsSlider.value = settingsState.settings.subSteps;
-      subStepsValue.textContent = settingsState.settings.subSteps;
-    }
-  });
 
   loadCircuitFromURL();
   simLoop(showSolveError);
